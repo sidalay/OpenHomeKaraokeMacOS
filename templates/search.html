@@ -361,8 +361,8 @@
       <label class="label">{{getString1(129)}}<small><i>'{{search_string}}'</i></small></label>
       <div class="field select">
         <select id="search_result_selector" name='song_url'>
-          {% for title,url,id in search_results %}
-          <option data-ytID='{{id}}' value='{{url}}'>{{title}}</option>
+          {% for title,url,id,dur in search_results %}
+          <option data-ytID='{{id}}' value='{{url}}'>{{title}} ({{dur}})</option>
           {% endfor %}
         </select>
       </div>

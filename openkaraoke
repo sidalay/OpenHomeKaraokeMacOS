@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+#
+# Launcher for OpenHomeKaraoke, meant to be symlinked onto your PATH, e.g.
+#   ln -s /path/to/OpenHomeKaraoke/openkaraoke ~/.local/bin/openkaraoke
+# then just run `openkaraoke` from anywhere. Any arguments are passed through
+# to app.py, so `openkaraoke --ssl -p 5001` works as expected.
+
+set -euo pipefail
+
+# Resolve this script through any symlinks to find the project directory.
+# app.py reads 'lang/' and 'cert.pem' by relative path, so we must run from there.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+	DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+	SOURCE="$(readlink "$SOURCE")"
+	[[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+PROJECT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+cd "$PROJECT_DIR"
+
+if [ -x .venv/bin/python ]; then
+	PYTHON="$PROJECT_DIR/.venv/bin/python"
+else
+	# No project venv: fall back to python3, but warn, because the system/Anaconda
+	# python is often 3.13+, where Flask 2.3 fails to import.
+	PYTHON="$(command -v python3 || true)"
+	if [ -z "$PYTHON" ]; then
+		echo "openkaraoke: no python3 found on PATH." >&2
+		exit 1
+	fi
+	echo "openkaraoke: no .venv found in $PROJECT_DIR, using $PYTHON" >&2
+	echo "openkaraoke: if it fails to start, create the venv with:" >&2
+	echo "  /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv .venv" >&2
+	echo "  .venv/bin/python -m pip install -r requirements.txt" >&2
+fi
+
+exec "$PYTHON" app.py "$@"

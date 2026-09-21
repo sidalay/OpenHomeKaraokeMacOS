@@ -9,13 +9,27 @@ from types import SimpleNamespace
 from html import unescape
 
 def get_default_vlc_path(platform):
+	if platform == "osx":
+		# On macOS, VLC must be launched through the binary *inside* its .app bundle.
+		# Launching it via a symlink such as /usr/local/bin/vlc makes Cocoa resolve the
+		# bundle to the symlink's directory, which has no CFBundleIdentifier: the macOS
+		# interface then fails to load its nib files and VLC aborts on startup.
+		for candidate in ["/Applications/VLC.app/Contents/MacOS/VLC",
+		                  os.path.expanduser("~/Applications/VLC.app/Contents/MacOS/VLC")]:
+			if os.path.isfile(candidate):
+				return candidate
+		# Fall back to whatever is on PATH, but resolve symlinks so we end up with the
+		# real path inside the bundle rather than the link.
+		shutil_path = shutil.which('VLC') or shutil.which('vlc') or shutil.which('cvlc')
+		if shutil_path:
+			return os.path.realpath(shutil_path)
+		return "/Applications/VLC.app/Contents/MacOS/VLC"
+
 	shutil_path = shutil.which('cvlc') or shutil.which('vlc')
 	if shutil_path:
 		return shutil_path
 
-	if platform == "osx":
-		return "/Applications/VLC.app/Contents/MacOS/VLC"
-	elif platform == "windows":
+	if platform == "windows":
 		alt_vlc_path = r"C:\\Program Files (x86)\\VideoLAN\VLC\\vlc.exe"
 		if os.path.isfile(alt_vlc_path):
 			return alt_vlc_path
@@ -90,6 +104,7 @@ class VLCClient:
 		logging.info("VLC command base: " + " ".join(self.cmd_base))
 
 		self.volume_offset = 10
+		self.startup_timeout = 30
 		self.process = None
 		self.last_status_text = ""
 		self.last_status_time = time.time()
@@ -145,7 +160,7 @@ class VLCClient:
 			file_path = self.process_file(file_path)
 			self.is_transposing = True
 			command = self.cmd_base + params + [file_path]
-			if self.platform == 'osx' and not os.K.full_screen:
+			if self.platform == 'osx' and not getattr(os.K, 'full_screen', True):
 				command.remove('--fullscreen')
 				command.remove('--macosx-nativefullscreenmode')
 
@@ -158,9 +173,19 @@ class VLCClient:
 			while self.process.poll() is not None:
 				pass
 
-			# wait for VLC HTTP is ready
+			# wait for VLC HTTP is ready. Bail out if VLC died or never came up, otherwise a
+			# player that fails to launch would hang the main loop forever.
+			deadline = time.time() + self.startup_timeout
 			while True:
 				time.sleep(0.1)
+				rc = self.process.poll()
+				if rc is not None:
+					raise Exception(f"VLC exited with code {rc} before its HTTP interface came up. "
+					                f"Check that '{self.path}' is the binary inside VLC.app "
+					                f"(launching VLC through a symlink breaks its macOS app bundle).")
+				if time.time() > deadline:
+					raise Exception(f"VLC did not open its HTTP interface on port {self.port} "
+					                f"within {self.startup_timeout}s.")
 				req = self.command("", False)
 				xml = req.text
 				if "<info name='Type'>Video</info>" not in xml and "<info name='Type'>Audio</info>" not in xml:

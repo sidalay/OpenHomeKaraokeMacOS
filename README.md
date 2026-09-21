@@ -77,6 +77,56 @@ This _should_ work on Windows, Linux machines and all Raspberry Pi devices (mult
 - Make sure you can run `yt-dlp`, `ffmpeg` and `vlc` (optionally `cvlc`) directly
 - For GPU-accelerated vocal splitter, install NVidia driver (Google on how to install); and use Anaconda3's pip to install PyTorch (see https://pytorch.org/)
 
+#### macOS
+
+Tested on Apple Silicon (macOS 15, Python 3.12).
+
+- Install the system dependencies with Homebrew:
+  `brew install python@3.12 ffmpeg tmux socat && brew install --cask vlc`
+  - `socat` is what `screencapture.sh` uses to serve the HTTP stream; macOS ships no
+    `ncat`/`socat`/`tcpserver`, so without it the stream server silently never listens.
+  - Install a JavaScript runtime for yt-dlp as well (`brew install deno`, or have `node`
+    on PATH). Without one, YouTube extraction is degraded and some formats are missing.
+- **Use Python 3.12, not 3.13/3.14.** Several pinned dependencies (Flask 2.3, and anything
+  importing `pkg_resources`) do not work on 3.14: on 3.14 the app fails at import with
+  `AttributeError: module 'pkgutil' has no attribute 'get_loader'`. A stock Anaconda
+  install is often 3.13+, so prefer a dedicated virtualenv:
+
+  ```
+  /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv .venv
+  .venv/bin/python -m pip install -r requirements.txt
+  .venv/bin/python app.py
+  ```
+
+  `run.sh` picks up `.venv/bin/python` automatically when it exists.
+- VLC must be launched through the binary *inside* its app bundle
+  (`/Applications/VLC.app/Contents/MacOS/VLC`). This is detected automatically; do not
+  point `--vlc-path` at a symlink such as `/usr/local/bin/vlc`, because Cocoa then
+  resolves the bundle to the symlink's directory, fails to load its nib files and VLC
+  aborts on startup.
+- The vocal splitter uses the Apple GPU (Metal/MPS) automatically — roughly 5x faster than
+  CPU — and is started by `app.py` itself, so it needs no tmux pane of its own.
+- To launch and stop from anywhere, symlink the `openkaraoke` and `exitkaraoke` scripts
+  onto your PATH:
+
+  ```
+  ln -s "$PWD/openkaraoke" ~/.local/bin/openkaraoke
+  ln -s "$PWD/exitkaraoke" ~/.local/bin/exitkaraoke
+  ```
+
+  Then `openkaraoke` starts the app from any directory, and any arguments are passed
+  through (`openkaraoke --ssl -p 5001`). The script resolves its own symlink and `cd`s
+  into the project first, which is required because `app.py` loads `lang/` and
+  `cert.pem` by relative path. It uses `.venv/bin/python` when that exists.
+  `exitkaraoke` finds the `app.py` running from this project and sends it SIGTERM, which
+  the app handles as a clean shutdown (stops VLC, saves delays); it force-kills after 10s.
+- Screen streaming (`screencapture.sh`) needs **Screen Recording** permission for your
+  terminal: System Settings > Privacy & Security > Screen Recording.
+- macOS cannot capture system output audio natively. `screencapture.sh` streams video only
+  unless you install a loopback device (`brew install blackhole-2ch`) and route system
+  output through it; it is then detected automatically. Capturing the microphone instead
+  would just feed room noise back to the TV, so that is not done by default.
+
 #### Windows
 
 - Install VLC (to its default location): https://www.videolan.org/
@@ -173,7 +223,7 @@ optional arguments:
 
 Upon launch, the connected monitor/TV should show a splash screen with the IP of OpenHomeKaraoke along with a QR code.
 
-If there's a keyboard attached, you can exit OpenHomeKaraoke by pressing "esc". You can toggle fullscreen mode by pressing "f"
+If there's a keyboard attached, you can exit OpenHomeKaraoke by pressing "esc". You can toggle fullscreen mode by pressing "f". Note that "f" only works while the OpenHomeKaraoke splash window has keyboard focus; if the VLC window has focus (e.g. after leaving fullscreen during a song), use the "Toggle fullscreen" button on the web interface's Info page (admin only) instead
 
 Make sure you are connected to the same network/wifi. You can then enter the shown IP or scan the QR code on your smartphone/tablet/computer to open it in a browser. From there you should see the OpenHomeKaraoke web interface. It is hopefully pretty self-explanatory, but if you really need some help:
 

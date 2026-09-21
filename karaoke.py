@@ -92,6 +92,11 @@ class Karaoke:
 		self.vlcclient = None
 		self.omxclient = None
 		self.screen = None
+		# must exist even when the splash screen is disabled: the osx player path reads it
+		self.full_screen = not args.windowed
+		# Set by the web UI (see /toggle_fullscreen in app.py) and consumed by handle_run_loop,
+		# because pygame's display calls must run on the main thread (required on macOS)
+		self.fullscreen_request = False
 		self.player_state = {}
 		self.downloading_songs = {}
 		self.log_level = int(args.log_level)
@@ -100,6 +105,7 @@ class Karaoke:
 			format = "[%(asctime)s] %(levelname)s: %(message)s",
 			datefmt = "%Y-%m-%d %H:%M:%S",
 			level = self.log_level,
+			force = True,	# anything that logged during startup must not win over -l
 		)
 
 		logging.debug(vars(args))
@@ -158,7 +164,7 @@ class Karaoke:
 			threading.Thread(target=self._cloud_thread).start()
 
 	def _upgrade_yt_dlp(self):
-		import pip, yt_dlp
+		import yt_dlp
 		fn = '.yt-dlp.last-update'
 		date_today = datetime.datetime.today().isoformat()[:10]
 		date_last = Try(lambda: open(fn).read().strip(), '')
@@ -221,8 +227,10 @@ class Karaoke:
 			self.call_yt_dlp(['-U'])
 		else:
 			try:
-				import pip
-				pip.main(['install', 'yt-dlp', '-U'])
+				# pip.main() is unsupported in-process and dumps a wall of DEPRECATION
+				# warnings into our log: run pip as the separate process it expects to be.
+				subprocess.run([sys.executable, '-m', 'pip', 'install', '-U', 'yt-dlp'],
+				               stdout = subprocess.DEVNULL, stderr = subprocess.DEVNULL, check = True)
 				cleanse_modules('yt_dlp')
 				import yt_dlp
 			except:
@@ -286,8 +294,8 @@ class Karaoke:
 
 	def toggle_full_screen(self, fullscreen=None):
 		if not self.hide_splash_screen:
-			logging.debug("Toggling fullscreen...")
 			self.full_screen = not self.full_screen if fullscreen is None else fullscreen
+			logging.debug("Toggling fullscreen -> %s" % self.full_screen)
 			if self.full_screen:
 				self.screen = pygame.display.set_mode([self.WIDTH, self.HEIGHT], self.get_default_display_mode())
 			else:
@@ -415,7 +423,25 @@ class Karaoke:
 			break
 		return render
 
+	def get_js_runtime_opt(self):
+		# yt-dlp needs a JavaScript runtime to solve YouTube's signature/n challenges;
+		# without one it warns and some formats are missing. Only deno is enabled by
+		# default, so point yt-dlp at whatever runtime is actually installed.
+		if not hasattr(self, '_js_runtime_opt'):
+			self._js_runtime_opt = []
+			if not shutil.which('deno'):
+				for runtime in ['node', 'bun', 'qjs']:
+					if shutil.which(runtime):
+						self._js_runtime_opt = ['--js-runtimes', runtime]
+						logging.info(f"Using '{runtime}' as the JavaScript runtime for yt-dlp")
+						break
+				else:
+					logging.warning("No JavaScript runtime (deno/node/bun) found: some YouTube formats may be "
+					                "unavailable. Install one with e.g. 'brew install deno'")
+		return self._js_runtime_opt
+
 	def call_yt_dlp(self, argv, get_stdout = False):
+		argv = self.get_js_runtime_opt() + argv
 		if self.youtubedl_path:
 			if get_stdout:
 				return subprocess.check_output([self.youtubedl_path]+argv).decode("utf-8")
@@ -1030,6 +1056,9 @@ class Karaoke:
 		self.running = False
 
 	def handle_run_loop(self):
+		if self.fullscreen_request:
+			self.fullscreen_request = False
+			self.toggle_full_screen()
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				logging.warn("Window closed: Exiting pikaraoke...")
@@ -1094,20 +1123,22 @@ class Karaoke:
 			return None
 
 	def vocal_restart(self):
-		if self.platform == 'windows' or self.run_vocal:
+		if self.platform in ['windows', 'osx'] or self.run_vocal:
 			import vocal_splitter
 			if self.vocal_process is not None and self.vocal_process.is_alive():
 				self.vocal_process.kill()
 			if shutil.which('ffmpeg'):
 				self.vocal_process = mp.Process(target=vocal_splitter.main, args=(['-p', '-d', self.download_path],))
 				self.vocal_process.start()
+			else:
+				logging.error("ffmpeg not found in PATH, vocal splitter disabled. Install it with: brew install ffmpeg")
 		else:
 			os.system(f"tmux send-keys -t PiKaraoke:0.4 C-c && tmux send-keys -t PiKaraoke:0.4 Up Enter")
 
 	def vocal_stop(self):
 		if self.vocal_process is not None and self.vocal_process.is_alive():
 			self.vocal_process.kill()
-		elif self.platform != 'windows':
+		elif self.platform not in ['windows', 'osx']:
 			os.system(f"tmux send-keys -t PiKaraoke:0.4 C-c")
 
 	def get_mp3_volume(self, filename):
@@ -1168,8 +1199,9 @@ class Karaoke:
 		logging.info("Starting PiKaraoke!")
 		self.running = True
 
-		# Windows does not have tmux, vocal splitter can only be invoked from the main program
-		if self.platform == 'windows' or self.run_vocal:
+		# Windows and macOS do not run the tmux session from run.sh, so the vocal splitter
+		# can only be invoked from the main program
+		if self.platform in ['windows', 'osx'] or self.run_vocal:
 			Try(lambda: self.vocal_restart())
 
 		while self.running:

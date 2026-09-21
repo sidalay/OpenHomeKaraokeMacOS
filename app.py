@@ -915,6 +915,16 @@ def bg_process(cmd):
 	return ''
 
 
+@app.route("/toggle_fullscreen")
+def toggle_fullscreen():
+	# Runs on a Flask worker thread, so only flag it: the pygame main loop does the toggle
+	if (is_admin()):
+		K.fullscreen_request = True
+	else:
+		flash(getString(34), "is-danger")
+	return ''
+
+
 @app.route("/quit")
 def quit():
 	if (is_admin()):
@@ -967,13 +977,89 @@ def expand_fs():
 	return ''
 
 
+def get_default_locale():
+	# macOS GUI sessions (and plain Terminal ones) usually have no LANG/LC_ALL set, so
+	# locale.getdefaultlocale() reports 'C' and every user would silently get English.
+	# Fall back to the locale the system itself is configured with.
+	for var in ('LC_ALL', 'LC_MESSAGES', 'LANG', 'LANGUAGE'):
+		val = os.environ.get(var)
+		if val and not val.startswith(('C', 'POSIX')):
+			return val.split('.')[0].split(':')[0]
+	if sys.platform == 'darwin':
+		try:
+			out = subprocess.check_output(['defaults', 'read', '-g', 'AppleLocale'], stderr = subprocess.DEVNULL)
+			lang = out.decode('utf-8').strip()
+			if lang:
+				return lang
+		except Exception:
+			pass
+	try:
+		import warnings
+		with warnings.catch_warnings():
+			warnings.simplefilter('ignore', DeprecationWarning)
+			lang = locale.getdefaultlocale()[0]
+	except Exception:
+		lang = None
+	return lang or 'en_US'
+
+
 def get_default_dl_dir():
 	return os.path.expanduser("~/pikaraoke-songs")
 
 def get_default_tmp_dir():
 	return '/dev/shm' if os.path.isdir('/dev/shm') else tempfile.gettempdir()
 
+# macOS default-browser bundle id -> (yt-dlp browser name, profile directory).
+# Only browsers yt-dlp can actually read are listed: handing it a profile from an
+# unsupported fork (Zen, LibreWolf, ...) yields broken cookies and makes YouTube
+# downloads fail, which is worse than sending no cookies at all.
+osx_browser_cookie_loc = [
+	('com.google.chrome',       'chrome',   '$HOME/Library/Application Support/Google/Chrome/'),
+	('com.brave.browser',       'brave',    '$HOME/Library/Application Support/BraveSoftware/Brave-Browser/'),
+	('com.microsoft.edgemac',   'edge',     '$HOME/Library/Application Support/Microsoft Edge/'),
+	('com.vivaldi.vivaldi',     'vivaldi',  '$HOME/Library/Application Support/Vivaldi/'),
+	('com.operasoftware.opera', 'opera',    '$HOME/Library/Application Support/com.operasoftware.Opera/'),
+	('org.chromium.chromium',   'chromium', '$HOME/Library/Application Support/Chromium/'),
+	('org.mozilla.firefox',     'firefox',  '$HOME/Library/Application Support/Firefox/Profiles/'),
+	('com.apple.safari',        'safari',   ''),
+]
+
+def get_osx_default_browser_id():
+	"""Bundle id of the app handling https, or '' if it cannot be determined."""
+	plist = os.path.expanduser('~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist')
+	try:
+		out = subprocess.check_output(['plutil', '-convert', 'json', '-o', '-', plist], stderr = subprocess.DEVNULL)
+		for h in json.loads(out).get('LSHandlers', []):
+			if h.get('LSHandlerURLScheme') in ('http', 'https') and h.get('LSHandlerRoleAll'):
+				return h['LSHandlerRoleAll'].lower()
+	except Exception:
+		pass
+	return ''
+
+def get_default_browser_cookie_osx():
+	# webbrowser.get().name is just 'default' on macOS, so ask LaunchServices instead.
+	# Only the actual default browser is considered: cookies from some other installed
+	# browser would be for an account the user does not browse YouTube with, and reading
+	# a Chromium profile pops a Keychain prompt for nothing.
+	browser_id = get_osx_default_browser_id()
+	for bundle_id, name, path in osx_browser_cookie_loc:
+		if not browser_id.startswith(bundle_id):
+			continue
+		if not path:
+			# yt-dlp locates Safari's cookie jar itself; it needs Full Disk Access to read it.
+			return name
+		expanded = os.path.expandvars(path)
+		if os.path.isdir(expanded):
+			return f'{name}:{expanded}'
+		break
+	logging.info(f"Default browser ({browser_id or 'unknown'}) is not one yt-dlp can read cookies from; "
+	             f"downloading without cookies. Override with --browser-cookies if needed.")
+	return ''
+
+
 def get_default_browser_cookie(platform):
+	if platform == 'osx':
+		return get_default_browser_cookie_osx()
 	platform = 'linux' if platform=='raspberry_pi' else platform
 	def_cookie_loc = defaultdict(lambda:defaultdict(lambda:''))
 	def_cookie_loc['linux']['firefox'] = '$HOME/.mozilla/firefox/'
@@ -1009,6 +1095,7 @@ if __name__ == "__main__":
 	default_splash_delay = 3
 	default_log_level = logging.INFO
 
+	default_lang = get_default_locale()
 	default_dl_dir = get_default_dl_dir()
 	default_omxplayer_path = "/usr/bin/omxplayer"
 	default_adev = "both"
@@ -1066,8 +1153,8 @@ if __name__ == "__main__":
 	)
 	parser.add_argument(
 		"-L", "--lang",
-		help = f"Set display language (default: None, set according to the current system locale {locale.getdefaultlocale()[0]})",
-		default = locale.getdefaultlocale()[0],
+		help = f"Set display language (default: None, set according to the current system locale {default_lang})",
+		default = default_lang,
 	)
 	parser.add_argument(
 		"-l", "--log-level",
@@ -1202,8 +1289,7 @@ if __name__ == "__main__":
 			import yt_dlp
 		except:
 			try:
-				import pip
-				pip.main(['install', 'yt-dlp'])
+				subprocess.run([sys.executable, '-m', 'pip', 'install', 'yt-dlp'], check = True)
 			except:
 				print(getString(44) + args.youtubedl_path)
 				sys.exit(1)

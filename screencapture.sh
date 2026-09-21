@@ -9,12 +9,21 @@
 
 PORT="8080"
 
-DISPLAYNAME=":0.0"
-CAPTUREORIGIN="0,0"
-CAPTURESIZE=$(xwininfo -display "$DISPLAYNAME" -root|grep --extended-regexp --only-matching "\-geometry\s[0-9]+x[0-9]+"|cut -d " " -f 2)
-
-SOUNDSERVER="alsa"
-AUDIODEVICE="default"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+	# macOS captures through AVFoundation. Device *indices* differ per machine, so they
+	# are detected at startup (see detectMacDevices) rather than hardcoded.
+	DISPLAYNAME=""
+	CAPTUREORIGIN="0,0"
+	CAPTURESIZE=""		# empty = capture the screen at its native resolution
+	SOUNDSERVER="avfoundation"
+	AUDIODEVICE=""
+else
+	DISPLAYNAME=":0.0"
+	CAPTUREORIGIN="0,0"
+	CAPTURESIZE=$(xwininfo -display "$DISPLAYNAME" -root|grep --extended-regexp --only-matching "\-geometry\s[0-9]+x[0-9]+"|cut -d " " -f 2)
+	SOUNDSERVER="alsa"
+	AUDIODEVICE="default"
+fi
 AUDIODELAY="0.16"
 
 VIDEOSCALE="1"
@@ -147,18 +156,88 @@ calc() {
 	python3 -c "print($1, end='')"
 }
 
+getFileSize() {
+	if [[ "$OSTYPE" == "darwin"* ]]; then
+		stat -f %z "$1" 2>/dev/null
+	else
+		stat --printf="%s" "$1" 2>/dev/null
+	fi
+}
+
+# Resolve AVFoundation device indices. They are not stable across machines: the screen
+# is whatever index ffmpeg labels "Capture screen", not a fixed number.
+detectMacDevices(){
+	local devices
+	devices=$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1)
+
+	if [ -z "$DISPLAYNAME" ]
+	then
+		DISPLAYNAME=$(echo "$devices" | sed -n 's/.*\[\([0-9][0-9]*\)\] Capture screen 0.*/\1/p' | head -n 1)
+		if [ -z "$DISPLAYNAME" ]
+		then
+			echo "Could not find an AVFoundation screen-capture device." >&2
+			echo "Grant Screen Recording permission to your terminal in" >&2
+			echo "System Settings > Privacy & Security > Screen Recording, then try again." >&2
+			echo "Detected devices:" >&2
+			echo "$devices" | sed -n 's/^\[AVFoundation[^]]*\] //p' >&2
+			return 1
+		fi
+	fi
+
+	if [ -z "$AUDIODEVICE" ]
+	then
+		# macOS cannot capture system output audio directly; that needs a virtual loopback
+		# device. Use one if the user has installed it, otherwise stream video only --
+		# silently grabbing the microphone would just feed the room's noise back to the TV.
+		AUDIODEVICE=$(echo "$devices" | sed -n 's/.*\[\([0-9][0-9]*\)\] \(BlackHole\|Loopback\|Soundflower\|Multi-Output\).*/\1/p' | head -n 1)
+		if [ -z "$AUDIODEVICE" ]
+		then
+			AUDIODEVICE="none"
+			echo "No loopback audio device found: streaming video only." >&2
+			echo "To stream sound as well, install one (e.g. 'brew install blackhole-2ch')," >&2
+			echo "route system output through it, then re-run. Override with -a <index>." >&2
+		fi
+	fi
+	return 0
+}
+
 startCapture(){
-	echo -n "\"use strict\";var mimeCodec=[\"video/mp4; codecs=\\\"avc1.42c01f\\\"\",\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\"];" > metadata.js
+	local audioCodec=",\"audio/mp4; codecs=\\\"mp4a.40.2\\\"\""
+	local inputArgs=()
+
+	if [[ "$OSTYPE" == "darwin"* ]]
+	then
+		detectMacDevices || killMainProcess 1
+
+		local videoSizeArg=()
+		[ -n "$CAPTURESIZE" ] && videoSizeArg=(-video_size "$CAPTURESIZE")
+
+		if [ "$AUDIODEVICE" == "none" ]
+		then
+			audioCodec=""
+			inputArgs=(-f avfoundation -capture_cursor 0 -framerate "$FRAMERATE" "${videoSizeArg[@]}" \
+			           -thread_queue_size 64 -i "$DISPLAYNAME:none")
+		else
+			inputArgs=(-f avfoundation -capture_cursor 0 -framerate "$FRAMERATE" "${videoSizeArg[@]}" \
+			           -thread_queue_size 1024 -itsoffset "$AUDIODELAY" -i "$DISPLAYNAME:$AUDIODEVICE")
+		fi
+	else
+		inputArgs=(-f x11grab -framerate "$FRAMERATE" -s:size "$CAPTURESIZE" -thread_queue_size 64 -i "$DISPLAYNAME+$CAPTUREORIGIN" \
+		           -f "$SOUNDSERVER" -thread_queue_size 1024 -itsoffset "$AUDIODELAY" -i "$AUDIODEVICE")
+	fi
+
+	echo -n "\"use strict\";var mimeCodec=[\"video/mp4; codecs=\\\"avc1.42c01f\\\"\"$audioCodec];" > metadata.js
 
 	mkdir 0 1
 
+	local audioArgs=(-filter:a "aresample=first_pts=0" -c:a aac -strict experimental -b:a 128k -ar 44100)
+	[ -z "$audioCodec" ] && audioArgs=(-an)
+
 	ffmpeg \
 		-loglevel "$LOGLEVEL" \
-		-f x11grab -framerate "$FRAMERATE" -s:size "$CAPTURESIZE" -thread_queue_size 64 -i "$DISPLAYNAME+$CAPTUREORIGIN" \
-		-f "$SOUNDSERVER" -thread_queue_size 1024 -itsoffset "$AUDIODELAY" -i "$AUDIODEVICE" \
+		"${inputArgs[@]}" \
 		-pix_fmt yuv420p \
-		-filter:a "aresample=first_pts=0" \
-		-c:a aac -strict experimental -b:a 128k -ar 44100 \
+		"${audioArgs[@]}" \
 		-filter:v "scale=trunc(iw*$VIDEOSCALE/2)*2:trunc(ih*$VIDEOSCALE/2)*2" \
 		-c:v libx264 -profile:v baseline -tune fastdecode -preset ultrafast -b:v "$TARGETBITRATE" -maxrate "$MAXBITRATE" -bufsize "$BUFFERSIZE" \
 		-r "$FRAMERATE" -g $(calc "round($FRAMERATE*$SEGMENTDURATION)") -keyint_min $(calc "round($FRAMERATE*$SEGMENTDURATION)") \
@@ -410,6 +489,16 @@ startServer(){
 		fi
 	}
 
+	# server.sh runs as its own process, so it needs its own copy of this helper:
+	# BSD stat (macOS) has no --printf.
+	getFileSize(){
+		if [[ "$OSTYPE" == "darwin"* ]]; then
+			stat -f %z "$1" 2>/dev/null
+		else
+			stat --printf="%s" "$1" 2>/dev/null
+		fi
+	}
+
 	printOtherHeaders(){
 		echo -ne "Connection: keep-alive\r\nCache-Control: no-cache, no-store, must-revalidate\r\nPragma: no-cache\r\nExpires: 0\r\nServer: screencapture\r\n\r\n"
 	}
@@ -430,7 +519,7 @@ startServer(){
 	}
 
 	printMetaData(){
-		printHeaders200 text/javascript "$(stat --printf="%s" metadata.js)"
+		printHeaders200 text/javascript "$(getFileSize metadata.js)"
 		cat metadata.js
 	}
 
@@ -489,7 +578,7 @@ startServer(){
 			fi
 		fi
 
-		local size=$(stat --printf="%s" "$1" 2>/dev/null)
+		local size=$(getFileSize "$1")
 
 		if [ "$?" == "0" ]
 		then
@@ -571,21 +660,33 @@ exitTrap(){
 	killChildProcesses "$$"
 	if [ -f exitcode ]
 	then
-		local code=$(head --lines=1 exitcode)
+		local code=$(head -n 1 exitcode)
 	fi
 	cd "$OLDDIR"
-	rm --recursive --force "$TEMPDIR"
+	rm -rf "$TEMPDIR"
 	if [ -n "$code" ]
 	then
 		exit "$code"
 	fi
 }
 
-TEMPDIR=$(mktemp --directory --suffix=ffmpeg-screen-capture --tmpdir="$TEMPDIRPARENT")
+if [[ "$OSTYPE" == "darwin"* ]]; then
+	# macOS / BSD mktemp syntax
+	if [ -n "$TEMPDIRPARENT" ]; then
+		TEMPDIR=$(mktemp -d "${TEMPDIRPARENT}/ffmpeg-screen-capture.XXXXXX")
+	else
+		TEMPDIR=$(mktemp -d -t ffmpeg-screen-capture)
+	fi
+else
+	# Linux / GNU mktemp syntax
+	TEMPDIR=$(mktemp --directory --suffix=ffmpeg-screen-capture --tmpdir="$TEMPDIRPARENT")
+fi
+
 if [ "$?" != "0" ]
 then
 	exit "$?"
 fi
+
 
 OLDDIR=$(pwd)
 cd "$TEMPDIR"

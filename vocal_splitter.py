@@ -198,7 +198,7 @@ def main(argv):
 	p = argparse.ArgumentParser()
 	p.add_argument('--download-path', '-d', help = "Path for downloaded songs. Will be overridden by the one from HTTP request. "
 					"Set this to forcefully run the vocal-splitter even when PiKaraoke is not running.", default = '')
-	p.add_argument('--gpu', '-g', type = int, help = 'CUDA device ID for GPU inference, set to -1 to force to use CPU (default will try to use GPU if available)', default = None)
+	p.add_argument('--gpu', '-g', type = int, help = 'CUDA device ID for GPU inference, set to -1 to force to use CPU (default will try to use the GPU if available: CUDA, or Metal/MPS on Apple Silicon)', default = None)
 	p.add_argument('--pretrained_model', '-P', type = str, default = 'models/baseline.pth')
 	p.add_argument('--sr', '-r', type = int, default = 44100)
 	p.add_argument('--n_fft', '-f', type = int, default = 2048)
@@ -218,9 +218,14 @@ def main(argv):
 	device = torch.device('cpu')
 	model = nets.CascadedNet(args.n_fft, args.hop_length, 32, 128, True)
 	model.load_state_dict(torch.load(args.pretrained_model, map_location = device))
-	if (args.gpu is None or args.gpu >= 0) and torch.cuda.is_available():
-		device = torch.device(f'cuda:{0 if args.gpu is None else args.gpu}')
-		model.to(device)
+	if args.gpu is None or args.gpu >= 0:
+		if torch.cuda.is_available():
+			device = torch.device(f'cuda:{0 if args.gpu is None else args.gpu}')
+			model.to(device)
+		elif getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available():
+			# Apple Silicon GPU (Metal). Much faster than CPU on M-series Macs.
+			device = torch.device('mps')
+			model.to(device)
 	args.model = model
 	args.device = device
 	print('done', flush = True)

@@ -1,9 +1,9 @@
 setuptools
+wheel
 lingua-language-detector
 unidecode
 pykakasi
 pinyin
-wheel
 pydub
 yt-dlp
 tempora==1.14.0
@@ -13,19 +13,17 @@ Flask
 flask-sock
 pillow
 qrcode
-pygame==2.5.2
-futures
-psutil 
+pygame>=2.5.2
+psutil
 unidecode
 requests
 arabic-reshaper
 python-bidi
 flask-paginate==2021.10.29
 flask==2.3.1
-numpy==1.26.4
+numpy>=1.26
 torch>=1.5.1
 tqdm>=4.30
-librosa==0.10.0
-pip
+# 0.10.x imports pkg_resources, which setuptools >= 81 no longer ships
+librosa>=0.11
 soundfile
-spec_utils

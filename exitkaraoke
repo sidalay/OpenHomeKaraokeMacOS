@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# Companion to ./openkaraoke: cleanly stops a running OpenHomeKaraoke. Symlink it
+# onto your PATH the same way, e.g.
+#   ln -s /path/to/OpenHomeKaraoke/exitkaraoke ~/.local/bin/exitkaraoke
+#
+# It sends SIGTERM to the app.py started from this project directory, which the app
+# handles by stopping the main loop, killing VLC, and saving delays (see the SIGTERM
+# handler in karaoke.py). If it is still alive after a grace period it gets SIGKILL.
+
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+	DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+	SOURCE="$(readlink "$SOURCE")"
+	[[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+PROJECT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+# openkaraoke always cd's into the project dir before exec'ing "<python> app.py", and
+# the venv's python is often a symlink (e.g. to Homebrew's Python.app), so the command
+# line is not a reliable match. Instead: any "... app.py" process whose cwd is here.
+find_pids() {
+	for pid in $(pgrep -f "[Pp]ython[0-9.]* app.py" || true); do
+		if [ "$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')" = "$PROJECT_DIR" ]; then
+			echo "$pid"
+		fi
+	done
+}
+
+PIDS="$(find_pids | sort -u)"
+if [ -z "$PIDS" ]; then
+	echo "exitkaraoke: OpenHomeKaraoke is not running." >&2
+	exit 1
+fi
+
+echo "exitkaraoke: stopping OpenHomeKaraoke (pid $(echo $PIDS | tr '\n' ' '))..."
+kill -TERM $PIDS 2>/dev/null || true
+
+# The app's own shutdown takes a couple of seconds (it stops VLC, then sleeps 1s).
+for _ in $(seq 1 20); do
+	sleep 0.5
+	if ! kill -0 $PIDS 2>/dev/null; then
+		echo "exitkaraoke: stopped."
+		exit 0
+	fi
+done
+
+echo "exitkaraoke: still running after 10s, force killing..." >&2
+kill -KILL $PIDS 2>/dev/null || true
+# VLC is normally killed by the app on shutdown; after a force kill it may be orphaned.
+pkill -f "VLC.*--http-port" 2>/dev/null || true
+echo "exitkaraoke: killed."

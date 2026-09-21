@@ -235,3 +235,5 @@ Youtube-dl (yt-dlp) 版本
 请将'chrome://flags/#unsafely-treat-insecure-origin-as-secure'复制到剪贴板并在新浏览页中粘贴并打开。
 您需要更改火狐浏览器的安全设置，允许HTTP网页访问麦克风，是否继续？
 请在新的页面中打开'about:config'，并且设置'media.getusermedia.insecure.enabled' and 'media.devices.insecure.enabled'。
+切换全屏（相当于在卡拉OK屏幕上按F键）
+当卡拉OK屏幕处于窗口模式且VLC窗口占据键盘焦点、按F键无效时使用。

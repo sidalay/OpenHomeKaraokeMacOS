@@ -235,3 +235,5 @@ You are using Chrome browser which supports treat-insecure-origin-as-secure flag
 Please copy 'chrome://flags/#unsafely-treat-insecure-origin-as-secure' into clipboard and paste it in new tab.
 You need to change the security setting in Firefox browser to allow microphone access in HTTP website, do you want to proceed?
 Please open 'about:config' in a new tab and set 'media.getusermedia.insecure.enabled' and 'media.devices.insecure.enabled'.
+Toggle fullscreen (same as pressing F on the karaoke screen)
+Use this when the karaoke screen is windowed and the VLC window has keyboard focus, so pressing F does nothing.
