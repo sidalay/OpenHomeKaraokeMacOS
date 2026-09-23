@@ -119,7 +119,9 @@ Tested on Apple Silicon (macOS 15, Python 3.12).
   Then `openkaraoke` starts the app from any directory, and any arguments are passed
   through (`openkaraoke --ssl -p 5001`). The script resolves its own symlink and `cd`s
   into the project first, which is required because `app.py` loads `lang/` and
-  `cert.pem` by relative path. It uses `.venv/bin/python` when that exists.
+  `cert.pem` by relative path. It uses `.venv/bin/python` when that exists. While the
+  app runs, it also keeps the Mac and display awake (`caffeinate`), so the TV doesn't
+  blank between songs; the normal sleep settings return as soon as the app exits.
   `exitkaraoke` finds the `app.py` running from this project and sends it SIGTERM, which
   the app handles as a clean shutdown (stops VLC, saves delays); it force-kills after 10s.
 - Screen streaming (`screencapture.sh`) needs **Screen Recording** permission for your
@@ -137,6 +139,12 @@ Tested on Apple Silicon (macOS 15, Python 3.12).
 - You can copy a .exe file into `C:\Windows\system32` folder to make it runnable everywhere or add its path to environment variable (see https://www.computerhope.com/issues/ch000549.htm)
 
 Note: if you have trouble installing pygame, there's apparently an incompatibility with Python 3.8. Try upgrading to the latest python version or downgrading to 3.7.
+
+## Running it as a standalone appliance
+
+To run this on a dedicated box instead of your laptop, see [deploy/pi/](deploy/pi/) for a
+Raspberry Pi 5 build (drafted, not yet hardware-tested), or [deploy/macos/](deploy/macos/)
+for a step-by-step Mac mini setup from a fresh machine, including autostart at login.
 
 ## Launch
 

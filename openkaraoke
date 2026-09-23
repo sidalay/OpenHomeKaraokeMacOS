@@ -35,4 +35,13 @@ else
 	echo "  .venv/bin/python -m pip install -r requirements.txt" >&2
 fi
 
+# Keep the Mac and its display awake for as long as the app runs, without touching the
+# global power settings: between songs only the splash screen is up, and macOS would
+# otherwise sleep the display (blanking the TV) or the whole Mac (dropping every phone's
+# connection). exec below keeps this PID, so `caffeinate -w` releases both assertions
+# the moment app.py exits, however it exits.
+if command -v caffeinate >/dev/null 2>&1; then
+	caffeinate -di -w $$ &
+fi
+
 exec "$PYTHON" app.py "$@"
