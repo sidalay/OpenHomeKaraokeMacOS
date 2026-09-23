@@ -1,0 +1,35 @@
+# OpenHomeKaraoke as an appliance service.
+#
+# This is a *user* unit (~/.config/systemd/user/), not a system one, because the app
+# needs the graphical session: pygame draws the splash screen and VLC plays onto the
+# HDMI output. Install it with deploy/pi/setup-pi.sh, or by hand:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/pi/openhomekaraoke.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now openhomekaraoke
+#
+# Logs:    journalctl --user -u openhomekaraoke -f
+# Attach:  tmux attach -t PiKaraoke     (the panes run inside tmux, see run.sh)
+
+[Unit]
+Description=OpenHomeKaraoke
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/OpenHomeKaraoke
+
+# run.sh builds the tmux session the app expects. This matters beyond convenience:
+# Karaoke.streamer_restart/streamer_stop control the screen streamer by sending keys to
+# tmux pane PiKaraoke:0.3, so the web UI's streamer buttons only work inside that layout.
+# OHK_NO_ATTACH stops run.sh from attaching to the session, which cannot work here.
+Environment=OHK_NO_ATTACH=1
+Environment=DISPLAY=:0
+ExecStart=%h/OpenHomeKaraoke/run.sh
+ExecStop=/usr/bin/tmux kill-session -t PiKaraoke
+
+[Install]
+WantedBy=graphical-session.target

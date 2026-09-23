@@ -65,5 +65,12 @@ if [[ "$OSTYPE" != "darwin"* ]] && type pacmd >/dev/null 2>&1; then
 	fi
 fi
 
+if [ -n "$OHK_NO_ATTACH" ]; then
+	# Started by the systemd unit (see deploy/pi/): the session must stay detached,
+	# there is no terminal to attach to. Use `tmux attach -t PiKaraoke` to look at it.
+	echo "Session $session_name started detached (OHK_NO_ATTACH set)."
+	exit 0
+fi
+
 tmux a -t $session_name
 
