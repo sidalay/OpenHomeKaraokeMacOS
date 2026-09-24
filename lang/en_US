@@ -237,3 +237,5 @@ You need to change the security setting in Firefox browser to allow microphone a
 Please open 'about:config' in a new tab and set 'media.getusermedia.insecure.enabled' and 'media.devices.insecure.enabled'.
 Toggle fullscreen (same as pressing F on the karaoke screen)
 Use this when the karaoke screen is windowed and the VLC window has keyboard focus, so pressing F does nothing.
+Theme
+The theme only changes this device. Everyone can pick their own.

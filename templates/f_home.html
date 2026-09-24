@@ -132,9 +132,11 @@ function s3_enable(n, val) {
 	if(val!=0){
 		s3t.onclick = () =>{s3_go_to(n, true)};
 		s3t.style.color = '#ffffff';
+		s3t.classList.remove('is-disabled');
 	} else {
 		s3t.onclick = null;
 		s3t.style.color = '#444444';
+		s3t.classList.add('is-disabled');
 	}
 }
 

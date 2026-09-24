@@ -237,3 +237,5 @@ Youtube-dl (yt-dlp) 版本
 请在新的页面中打开'about:config'，并且设置'media.getusermedia.insecure.enabled' and 'media.devices.insecure.enabled'。
 切换全屏（相当于在卡拉OK屏幕上按F键）
 当卡拉OK屏幕处于窗口模式且VLC窗口占据键盘焦点、按F键无效时使用。
+主题
+主题只作用于当前设备，每个人都可以选择自己喜欢的主题。

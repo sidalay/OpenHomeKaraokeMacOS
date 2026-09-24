@@ -1,0 +1,644 @@
+/*
+ * OpenHomeKaraoke web UI themes.
+ *
+ * How it works
+ * - theme.js puts data-theme="<name>" on <html>, plus the class "themed" for every theme
+ *   except "classic". Classic is the original Bulma "Darkly" look and gets none of the
+ *   rules below, so it always renders exactly as before.
+ * - A theme is only a block of --ohk-* color tokens. Everything else in this file (the
+ *   modern component layer) reads those tokens, so a new theme needs no new rules.
+ *
+ * Adding a theme
+ *   1. Copy the "latte" token block below, rename it and change the colors.
+ *   2. Add it to THEMES in theme.js (name, label, three swatch colors for the picker).
+ *
+ * Every rule is prefixed with .themed so it outranks Bulma 0.7.2's own selectors, which
+ * hardcode their colors. !important is used only where Bulma's helpers or the templates'
+ * inline styles already use it or set colors inline.
+ */
+
+/* ------------------------------------------------------------------ tokens */
+
+html[data-theme="latte"] {
+	color-scheme: light;
+	--ohk-bg: #F4ECE1;                 /* cream page background */
+	--ohk-bg-2: #EDE2D3;               /* bottom of the page gradient */
+	--ohk-surface: #FFFBF5;            /* cards */
+	--ohk-inset: #F2E8DA;              /* rows, inputs, tracks: beige */
+	--ohk-border: #E5D8C5;
+	--ohk-text: #3A2D24;               /* espresso */
+	--ohk-text-2: #6B5646;             /* secondary text */
+	--ohk-muted: #85705E;              /* hints; on --ohk-surface only (4.5:1) */
+	--ohk-accent: #8F6140;             /* caramel brown: buttons, active states */
+	--ohk-accent-hover: #7A5236;
+	--ohk-accent-soft: #EBDCC7;        /* active tab pill, selection */
+	--ohk-on-accent: #FFF9F1;
+	--ohk-success: #5E7A4C;            /* sage */
+	--ohk-danger: #A94B32;             /* terracotta */
+	--ohk-warning: #8A6320;            /* honey */
+	--ohk-player-bg: #3B2C22;          /* the player card is dark roast */
+	--ohk-player-bg-2: #4A3A2E;
+	--ohk-player-text: #F6EEE3;
+	--ohk-player-muted: #C2AE99;
+	--ohk-player-accent: #E3B98E;      /* latte foam */
+	--ohk-player-border: transparent;
+	--ohk-on-status: #FFFFFF;          /* text on success/danger/warning fills */
+	--ohk-nav-bg: rgba(255, 251, 245, 0.86);
+	--ohk-nav-highlight: rgba(255, 255, 255, 0.6);
+	--ohk-shadow: 0 1px 2px rgba(58, 45, 36, 0.06), 0 10px 30px rgba(58, 45, 36, 0.08);
+	--ohk-shadow-lg: 0 18px 50px rgba(58, 45, 36, 0.28);
+	--ohk-focus: rgba(143, 97, 64, 0.28);
+	/* Recolors the bright-yellow equalizer icon to --ohk-accent. Tuned by measuring the
+	   filtered image's average color on a canvas: renders ~rgb(139,92,69) vs #8F6140. */
+	--ohk-eq-filter: brightness(0) invert(42%) sepia(30%) saturate(600%) hue-rotate(335deg) brightness(88%) contrast(95%);
+}
+
+/* Dark roast: the same palette turned down. Surfaces step up in brightness
+   (page < card < player) so layers stay distinct without relying on shadows,
+   which barely show on dark. Status colors are lighter here, so text on them is dark. */
+html[data-theme="espresso"] {
+	color-scheme: dark;
+	--ohk-bg: #1C1511;
+	--ohk-bg-2: #150F0C;
+	--ohk-surface: #2A2019;
+	--ohk-inset: #372A21;
+	--ohk-border: #463729;
+	--ohk-text: #F3E9DC;
+	--ohk-text-2: #CDBBA7;
+	--ohk-muted: #A8927D;
+	--ohk-accent: #D9A877;             /* caramel, lifted for dark */
+	--ohk-accent-hover: #E6BA8E;
+	--ohk-accent-soft: #4A3A2D;
+	--ohk-on-accent: #2A1F18;
+	--ohk-success: #9DBB84;
+	--ohk-danger: #E58E73;
+	--ohk-warning: #E2B563;
+	--ohk-player-bg: #45342A;
+	--ohk-player-bg-2: #57432F;
+	--ohk-player-text: #F6EEE3;
+	--ohk-player-muted: #C2AE99;
+	--ohk-player-accent: #E3B98E;
+	--ohk-player-border: rgba(227, 185, 142, 0.18);
+	--ohk-on-status: #1C1511;
+	--ohk-nav-bg: rgba(28, 21, 17, 0.84);
+	--ohk-nav-highlight: rgba(255, 255, 255, 0.04);
+	--ohk-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.35);
+	--ohk-shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.55);
+	--ohk-focus: rgba(217, 168, 119, 0.32);
+	/* measured like latte's: renders ~rgb(213,170,125) vs #D9A877 */
+	--ohk-eq-filter: brightness(0) invert(70%) sepia(20%) saturate(600%) hue-rotate(350deg) brightness(95%);
+}
+
+/* Shared, theme-independent tokens */
+html.themed {
+	--ohk-radius: 20px;
+	--ohk-radius-sm: 12px;
+	--ohk-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+		"Helvetica Neue", "Noto Sans", "Noto Sans CJK SC", Arial, sans-serif;
+	--ohk-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ------------------------------------------------------------- page, type */
+
+html.themed {
+	background: var(--ohk-bg);
+}
+.themed body {
+	background: linear-gradient(180deg, var(--ohk-bg) 0%, var(--ohk-bg-2) 100%) fixed;
+	color: var(--ohk-text);
+	font-family: var(--ohk-font);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	-webkit-tap-highlight-color: transparent;
+}
+.themed body,
+.themed button,
+.themed input,
+.themed select,
+.themed textarea {
+	font-family: var(--ohk-font);
+}
+.themed h1, .themed h2, .themed h3, .themed h4, .themed h5, .themed h6,
+.themed .title, .themed .subtitle, .themed .label,
+.themed .content h1, .themed .content h2, .themed .content h3,
+.themed .content h4, .themed .content h5, .themed .content h6 {
+	color: var(--ohk-text);
+	letter-spacing: -0.015em;
+}
+.themed #container h1 { font-size: 1.75rem; font-weight: 700; }
+.themed #container h2 { font-size: 1.35rem; font-weight: 700; }
+.themed #container h3 { font-size: 1.1rem; font-weight: 650; color: var(--ohk-text-2); }
+.themed #container h4 { font-weight: 600; }
+.themed strong, .themed b { color: inherit; }
+.themed a { color: var(--ohk-accent); }
+.themed a:hover { color: var(--ohk-accent-hover); }
+.themed hr {
+	background-color: var(--ohk-border);
+	height: 1px;
+	margin: 1rem 0;
+}
+.themed .help, .themed .help-normal { color: var(--ohk-muted); }
+.themed ::selection { background: var(--ohk-accent-soft); color: var(--ohk-text); }
+
+/* Bulma's color helpers are !important, so these must be too */
+.themed .has-text-warning { color: var(--ohk-warning) !important; }
+.themed .has-text-success { color: var(--ohk-success) !important; }
+.themed .has-text-danger  { color: var(--ohk-danger) !important; }
+.themed .has-text-info,
+.themed .has-text-primary { color: var(--ohk-accent) !important; }
+
+/* --------------------------------------------------------------- navbar */
+
+.themed .navbar {
+	background: var(--ohk-nav-bg);
+	-webkit-backdrop-filter: saturate(160%) blur(16px);
+	backdrop-filter: saturate(160%) blur(16px);
+	border-bottom: 1px solid var(--ohk-border);
+	box-shadow: 0 1px 0 var(--ohk-nav-highlight) inset;
+}
+.themed .navbar-brand { align-items: center; gap: 2px; }
+.themed .navbar-item,
+.themed .navbar-link {
+	color: var(--ohk-text-2);
+	font-weight: 600;
+}
+.themed .navbar-brand > a.navbar-item {
+	border-radius: 14px;
+	margin: 4px 1px;
+	padding: 0.4rem 0.7rem;
+	transition: background-color 0.2s var(--ohk-ease), color 0.2s var(--ohk-ease);
+}
+.themed a.navbar-item:hover,
+.themed a.navbar-item:focus,
+.themed a.navbar-item:focus-within {
+	background-color: var(--ohk-inset);
+	color: var(--ohk-text);
+}
+.themed a.navbar-item.is-active {
+	background-color: var(--ohk-accent-soft);
+	color: var(--ohk-accent);
+}
+.themed .navbar-burger { color: var(--ohk-text-2); }
+.themed .navbar-burger:hover { background-color: var(--ohk-inset); }
+.themed .navbar-menu {
+	background: transparent;
+	box-shadow: none;
+}
+@media screen and (max-width: 1087px) {
+	/* Bulma shows the burger menu as a drop-down below the bar on narrow screens */
+	.themed .navbar-menu.is-active {
+		background: var(--ohk-surface);
+		border-top: 1px solid var(--ohk-border);
+		box-shadow: var(--ohk-shadow);
+	}
+	.themed .navbar-menu .navbar-item { padding: 0.8rem 1.1rem; }
+}
+.themed #speak > i { filter: grayscale(0.2); }
+
+/* ---------------------------------------------------------------- cards */
+
+.themed .box {
+	background: var(--ohk-surface);
+	color: var(--ohk-text);
+	border: 1px solid var(--ohk-border);
+	border-radius: var(--ohk-radius);
+	box-shadow: var(--ohk-shadow);
+}
+/* the page body: one big card holding the current pane */
+.themed #container {
+	padding: 1.3rem 1.1rem 1.5rem;
+	margin-top: 10px !important;
+	animation: ohk-rise 0.28s var(--ohk-ease);
+}
+@keyframes ohk-rise {
+	from { opacity: 0; transform: translateY(6px); }
+	to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.themed #container { animation: none; }
+}
+.themed .container { padding-left: 10px !important; padding-right: 10px !important; }
+
+/* ------------------------------------------------------------ home pane */
+
+.themed #now-playing {
+	color: var(--ohk-text) !important;          /* was has-text-warning yellow */
+	font-weight: 700;
+	font-size: 1.45rem !important;
+	line-height: 1.25;
+	letter-spacing: -0.02em;
+	margin: 0.35rem 0 0.25rem;
+}
+.themed #now-playing .has-text-success,
+.themed #now-playing + * .has-text-success { font-size: 1rem; font-weight: 600; }
+.themed #up-next {
+	color: var(--ohk-text-2) !important;
+	background: var(--ohk-inset);
+	border-radius: var(--ohk-radius-sm);
+	padding: 0.7rem 0.85rem;
+	margin-top: 0.5rem !important;
+	min-height: 2.9rem;
+	position: relative;
+}
+.themed #up-next span[style*="position:absolute"] { padding-top: 0 !important; }
+.themed #playing_gif,
+.themed #playing_png {
+	filter: var(--ohk-eq-filter);
+	vertical-align: -4px;
+}
+
+/* player card: dark roast */
+.themed .control-box.box,
+.themed .has-background-black-bis.control-box {
+	background: linear-gradient(160deg, var(--ohk-player-bg-2) 0%, var(--ohk-player-bg) 60%) !important;
+	color: var(--ohk-player-text);
+	border: 1px solid var(--ohk-player-border);
+	border-radius: 24px;
+	box-shadow: var(--ohk-shadow-lg);
+	padding: 1.2rem 1.05rem 1.3rem;
+	margin-top: 1.1rem;
+}
+.themed .control-box h1,
+.themed .control-box h4,
+.themed .control-box p,
+.themed .control-box span,
+.themed .control-box div { color: inherit; }
+/* #container in the selector: it must outrank ".themed #container h3" above. On phones
+   f_home.html swaps this heading from an h1 to an h3. */
+.themed #container .control-box h1,
+.themed #container .control-box h3 {
+	font-size: 1.2rem !important;
+	font-weight: 700;
+	line-height: 1.2;
+	color: var(--ohk-player-text) !important;
+}
+/* transport buttons + volume: one row that never wraps (the volume sat on its own line) */
+.themed .control-box > p.is-size-3 {
+	display: flex;
+	align-items: center;
+	white-space: nowrap;
+	margin: 0.6rem 0 0.9rem;
+	font-size: 1.9rem !important;
+}
+.themed .control-box > p.is-size-3 > .is-pulled-right {
+	float: none !important;
+	margin-left: auto;
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+.themed #vol {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+	font-size: 1.6rem;
+	min-width: 2.4em;
+	text-align: center;
+	border-radius: 10px;
+	outline: none;
+}
+.themed #vol:focus { background: rgba(246, 238, 227, 0.12); }
+.themed .control-box h4 { color: var(--ohk-player-text); }
+.themed .control-box a { color: var(--ohk-player-text); transition: color 0.15s, transform 0.15s; }
+.themed .control-box a:hover { color: var(--ohk-player-accent); }
+.themed .control-box a:active { transform: scale(0.92); }
+.themed .control-box .icon-info-circled-1 { color: var(--ohk-player-muted); }
+.themed .control-box .boxedText {
+	border: 1.5px solid var(--ohk-player-accent);
+	border-radius: 10px;
+	padding: 1px 8px;
+}
+/* audio / subtitle delay -/+ (inline red/green in the template) */
+.themed #delay-dec, .themed #subdelay-dec { color: #F0A28A !important; }
+.themed #delay-inc, .themed #subdelay-inc { color: #B9D3A0 !important; }
+
+/* Music / Mixed / Voice switch (colors are inline in f_home.html) */
+.themed #s3-inner {
+	background-color: rgba(246, 238, 227, 0.14) !important;
+	box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+.themed .redButton {
+	background-color: var(--ohk-player-accent) !important;
+	box-shadow: 0 0 0 3px rgba(227, 185, 142, 0.25);
+}
+.themed .legendText { color: var(--ohk-player-text) !important; font-family: var(--ohk-font) !important; }
+.themed .legendText.is-disabled { color: rgba(246, 238, 227, 0.3) !important; }
+
+/* ---------------------------------------------------------------- sliders */
+
+.themed input[type="range"] {
+	-webkit-appearance: none;
+	appearance: none;
+	background: transparent;
+	height: 26px;
+	cursor: pointer;
+}
+.themed input[type="range"]:focus { outline: none; }
+.themed input[type="range"]::-webkit-slider-runnable-track {
+	height: 6px;
+	border-radius: 999px;
+	background: var(--ohk-inset);
+}
+.themed input[type="range"]::-moz-range-track {
+	height: 6px;
+	border-radius: 999px;
+	background: var(--ohk-inset);
+}
+.themed input[type="range"]::-moz-range-progress {
+	height: 6px;
+	border-radius: 999px;
+	background: var(--ohk-accent);
+}
+.themed input[type="range"]::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 22px;
+	height: 22px;
+	margin-top: -8px;
+	border-radius: 50%;
+	background: var(--ohk-surface);
+	border: 3px solid var(--ohk-accent);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+	transition: transform 0.15s var(--ohk-ease);
+}
+.themed input[type="range"]::-moz-range-thumb {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	background: var(--ohk-surface);
+	border: 3px solid var(--ohk-accent);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.themed input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+.themed input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 5px var(--ohk-focus); }
+/* on the dark player card */
+.themed .control-box input[type="range"]::-webkit-slider-runnable-track { background: rgba(246, 238, 227, 0.18); }
+.themed .control-box input[type="range"]::-moz-range-track { background: rgba(246, 238, 227, 0.18); }
+.themed .control-box input[type="range"]::-moz-range-progress { background: var(--ohk-player-accent); }
+.themed .control-box input[type="range"]::-webkit-slider-thumb {
+	background: var(--ohk-player-accent);
+	border-color: var(--ohk-player-text);
+}
+.themed .control-box input[type="range"]::-moz-range-thumb {
+	background: var(--ohk-player-accent);
+	border-color: var(--ohk-player-text);
+}
+
+/* ---------------------------------------------------------------- buttons */
+
+.themed .button,
+.themed rbutton {
+	background: var(--ohk-surface);
+	background-image: none;
+	color: var(--ohk-text);
+	border: 1px solid var(--ohk-border);
+	border-radius: 999px;
+	font: 600 0.95rem/1.2 var(--ohk-font);
+	text-shadow: none;
+	box-shadow: 0 1px 2px rgba(58, 45, 36, 0.08);
+	padding: 0.55rem 1.15rem;
+	height: auto;
+	transition: background-color 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.themed .button:hover, .themed rbutton:hover {
+	background: var(--ohk-inset);
+	border-color: var(--ohk-border);
+	color: var(--ohk-text);
+}
+.themed .button:active, .themed rbutton:active { transform: scale(0.97); top: 0; }
+.themed .button:focus-visible, .themed rbutton:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--ohk-focus); }
+.themed rbutton { transform: none; font-size: 1.05rem; }
+.themed .button.is-primary, .themed .button.is-info, .themed .button.is-link,
+.themed .button.blue, .themed .button[type="submit"], .themed rbutton {
+	background: var(--ohk-accent);
+	border-color: var(--ohk-accent);
+	color: var(--ohk-on-accent);
+}
+.themed .button.is-primary:hover, .themed .button.is-info:hover, .themed .button.is-link:hover,
+.themed .button.blue:hover, .themed .button[type="submit"]:hover, .themed rbutton:hover {
+	background: var(--ohk-accent-hover);
+	border-color: var(--ohk-accent-hover);
+	color: var(--ohk-on-accent);
+}
+.themed .button.is-success, .themed .button.green {
+	background: var(--ohk-success); border-color: var(--ohk-success); color: var(--ohk-on-status);
+}
+.themed .button.is-danger, .themed .button.red {
+	background: var(--ohk-danger); border-color: var(--ohk-danger); color: var(--ohk-on-status);
+}
+.themed .button.is-success:hover, .themed .button.green:hover,
+.themed .button.is-danger:hover, .themed .button.red:hover { filter: brightness(1.08); color: var(--ohk-on-status); }
+.themed .button[disabled], .themed .button[disabled]:hover {
+	background: var(--ohk-inset);
+	border-color: var(--ohk-border);
+	color: var(--ohk-muted);
+	box-shadow: none;
+	filter: none;
+}
+.themed .button-group { padding-left: 0; }
+
+/* ----------------------------------------------------------------- forms */
+
+.themed .input,
+.themed .textarea,
+.themed .select select,
+.themed .selectize-input,
+.themed input[type="text"]:not([type="hidden"]),
+.themed input[type="password"] {
+	background: var(--ohk-surface);
+	color: var(--ohk-text);
+	border: 1px solid var(--ohk-border);
+	border-radius: var(--ohk-radius-sm);
+	box-shadow: 0 1px 2px rgba(58, 45, 36, 0.05) inset;
+	font-size: 1rem;           /* 16px stops iOS zooming into the field on focus */
+	min-height: 2.6rem;
+}
+.themed .input::placeholder, .themed .textarea::placeholder { color: var(--ohk-muted); }
+.themed .input:focus, .themed .textarea:focus, .themed .select select:focus,
+.themed .selectize-input.focus, .themed input[type="text"]:focus {
+	border-color: var(--ohk-accent);
+	box-shadow: 0 0 0 4px var(--ohk-focus);
+	outline: none;
+}
+.themed .select:not(.is-multiple):not(.is-loading)::after { border-color: var(--ohk-accent); }
+/* input + button joined into one control (the search box): square the inner corners */
+.themed .field.has-addons .control:first-child:not(:only-child) .input {
+	border-top-right-radius: 0;
+	border-bottom-right-radius: 0;
+}
+.themed .field.has-addons .control:last-child:not(:only-child) .button {
+	border-radius: 0 var(--ohk-radius-sm) var(--ohk-radius-sm) 0;
+	height: 2.6rem;
+	padding-top: 0;
+	padding-bottom: 0;
+}
+.themed .checkbox:hover, .themed .radio:hover { color: var(--ohk-text); }
+.themed input[type="checkbox"], .themed input[type="radio"] { accent-color: var(--ohk-accent); }
+.themed .label { font-weight: 600; }
+
+/* Info page toggles (styles are local to f_info.html) */
+.themed .switch .slider { background-color: var(--ohk-border); }
+.themed .switch .slider:before { background-color: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); }
+.themed .switch input:checked + .slider { background-color: var(--ohk-accent); }
+.themed .switch input:focus + .slider { box-shadow: 0 0 0 4px var(--ohk-focus); }
+
+/* selectize (search box) and jQuery UI autocomplete drop-downs */
+.themed .selectize-dropdown,
+.themed .ui-menu.ui-widget-content {
+	background: var(--ohk-surface);
+	color: var(--ohk-text);
+	border: 1px solid var(--ohk-border);
+	border-radius: var(--ohk-radius-sm);
+	box-shadow: var(--ohk-shadow);
+	overflow: hidden;
+}
+.themed .selectize-dropdown .active,
+.themed .ui-menu .ui-state-active,
+.themed .ui-menu .ui-menu-item-wrapper.ui-state-active {
+	background: var(--ohk-accent-soft);
+	color: var(--ohk-text);
+	border-color: transparent;
+	margin: 0;
+}
+
+/* ---------------------------------------------------------------- tables */
+
+.themed .table {
+	background: transparent;
+	color: var(--ohk-text);
+	border-collapse: separate;
+	border-spacing: 0;
+}
+.themed .table td, .themed .table th {
+	border-color: var(--ohk-border);
+	color: inherit;
+	vertical-align: middle;
+}
+/* index.html sets every even row to dark grey (rgb(50,55,55)) */
+.themed tr:nth-child(even),
+.themed .table.is-striped tbody tr:not(.is-selected):nth-child(even) {
+	background-color: var(--ohk-inset);
+}
+.themed .table tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+.themed .table tbody tr td:last-child  { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+/* queue drag handle: a dotted grip instead of a blank block */
+.themed .drag-starter {
+	background: radial-gradient(circle, var(--ohk-muted) 1.3px, transparent 1.6px) center / 7px 7px,
+		var(--ohk-inset) !important;
+	cursor: grab;
+	width: 22px;
+}
+
+/* ------------------------------------------------------------------ tabs */
+
+.themed .tabs a { color: var(--ohk-text-2); border-bottom-color: var(--ohk-border); }
+.themed .tabs a:hover { color: var(--ohk-text); border-bottom-color: var(--ohk-muted); }
+.themed .tabs li.is-active a { color: var(--ohk-accent); border-bottom-color: var(--ohk-accent); }
+.themed .tabs ul { border-bottom-color: var(--ohk-border); }
+/* the player's -/+ controls reuse the .tabs class for layout only */
+.themed .control-box .tabs { color: var(--ohk-player-text); }
+
+/* ------------------------------------------------ browse alphabet, paging */
+
+.themed #alpha-bar.has-background-dark {
+	background: var(--ohk-surface) !important;
+	border: 1px solid var(--ohk-border);
+	border-radius: 14px !important;
+	box-shadow: var(--ohk-shadow);
+}
+.themed #alpha-bar a { color: var(--ohk-accent); font-weight: 700; }
+.themed .pagination-link,
+.themed .pagination-previous,
+.themed .pagination-next {
+	background: var(--ohk-surface);
+	color: var(--ohk-text);
+	border-color: var(--ohk-border);
+	border-radius: 10px;
+}
+.themed .pagination-link.is-current {
+	background: var(--ohk-accent);
+	border-color: var(--ohk-accent);
+	color: var(--ohk-on-accent);
+}
+.themed .pagination-page-info b { color: var(--ohk-text); }
+
+/* ----------------------------------------------------- tags, notification */
+
+.themed .tag:not(body) {
+	background: var(--ohk-inset);
+	color: var(--ohk-text-2);
+	border-radius: 999px;
+}
+.themed .notification {
+	background: var(--ohk-player-bg);
+	color: var(--ohk-player-text);
+	border-radius: 16px;
+	box-shadow: var(--ohk-shadow-lg);
+	padding: 1rem 2.5rem 1rem 1.2rem;
+}
+.themed .notification.is-success { background: var(--ohk-success); color: var(--ohk-on-status); }
+.themed .notification.is-danger  { background: var(--ohk-danger);  color: var(--ohk-on-status); }
+.themed .notification.is-warning { background: var(--ohk-warning); color: var(--ohk-on-status); }
+.themed .notification.is-info    { background: var(--ohk-player-bg); color: var(--ohk-player-text); }
+.themed .notification a, .themed #notificationControls { color: inherit; text-decoration: underline; }
+.themed .current-user { color: var(--ohk-text-2); }
+
+/* ---------------------------------------------- voice-search overlay (ASR) */
+
+.themed .dark_overlay {
+	background-color: rgba(42, 32, 25, 0.72);
+	-webkit-backdrop-filter: blur(6px);
+	backdrop-filter: blur(6px);
+	opacity: 1;
+}
+.themed #waveform {
+	border: 3px solid var(--ohk-player-accent) !important;
+	background-color: rgba(0, 0, 0, 0.35) !important;
+}
+.themed #ASRselect {
+	background-color: var(--ohk-surface) !important;
+	color: var(--ohk-text);
+	border-radius: var(--ohk-radius);
+	box-shadow: var(--ohk-shadow-lg);
+}
+
+/* ---------------------------------------------------------- theme picker */
+
+/* Lives on the Info page (f_info.html). Shown for every theme, including classic,
+   so there is always a way back. */
+.ohk-theme-picker {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 10px;
+	margin: 0.6rem 0 0.4rem;
+}
+.ohk-theme-option {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 12px;
+	border-radius: 14px;
+	border: 2px solid rgba(128, 128, 128, 0.35);
+	background: transparent;
+	color: inherit;
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+	text-align: left;
+	transition: border-color 0.15s, transform 0.1s;
+}
+.ohk-theme-option:active { transform: scale(0.98); }
+.ohk-theme-option[aria-pressed="true"] { border-color: currentColor; }
+.themed .ohk-theme-option { border-color: var(--ohk-border); background: var(--ohk-surface); }
+.themed .ohk-theme-option[aria-pressed="true"] {
+	border-color: var(--ohk-accent);
+	box-shadow: 0 0 0 4px var(--ohk-focus);
+}
+.ohk-swatches { display: inline-flex; }
+.ohk-swatches i {
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.85);
+	box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+	margin-right: -6px;
+	font-style: normal;
+}
