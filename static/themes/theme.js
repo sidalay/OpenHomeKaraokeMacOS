@@ -16,7 +16,7 @@
 		{ name: 'espresso', label: 'Espresso', swatches: ['#1C1511', '#45342A', '#D9A877'], bar: '#1C1511' },
 		{ name: 'classic',  label: 'Classic',  swatches: ['#222222', '#375A7F', '#1ABC9C'], bar: '#375A7F' }
 	];
-	var DEFAULT_THEME = 'latte';
+	var DEFAULT_THEME = 'auto';
 	var STORAGE_KEY = 'ohk-theme';
 
 	function find(name) {
