@@ -17,9 +17,13 @@
 	<link rel="stylesheet" href="/static/jquery-ui.min.css">
 	<link rel="stylesheet" href="/static/bulma-dark.css">
 	<link rel="stylesheet" href="/static/custom.css">
-	<link rel="icon" type="image/png" href="/static/images/microphone.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16.png">
+	<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+	<link rel="manifest" href="/static/manifest.json">
+	<meta name="apple-mobile-web-app-title" content="Karaoke">
 	<link rel="stylesheet" href="/static/fontello/css/fontello.css">
-	<link rel="stylesheet" href="/static/themes/theme.css?v=9">
+	<link rel="stylesheet" href="/static/themes/theme.css?v=10">
 </head>
 
 <style>
@@ -113,7 +117,7 @@ rbutton:focus:not(:active) {box-shadow: #28aaff40 0 0 0 .125em;}
 				<span>{{getString1(98)}}</span>
 			</a>
 			<a id="speak" class="navbar-item" style="margin-left: auto;" onclick="ASR()">
-				<i class="icon" title="{{getString1(212)}}">🗣</i>
+				<i class="icon icon-mic-1" title="{{getString1(212)}}"></i>
 				<span>{{getString1(212)}}</span>
 			</a>
 			<a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
