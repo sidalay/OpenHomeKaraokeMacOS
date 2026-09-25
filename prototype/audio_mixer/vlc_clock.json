@@ -1,0 +1,11 @@
+<?vlc --[[
+Prototype clock page: VLC's playback position with microsecond resolution (the stock
+status.xml only reports whole seconds, and a 0..1 position with ~0.25 s updates).
+Installed as requests/clock.json by proto.py.
+]]
+local input = vlc.object.input()
+if not input then print('{"state":"stopped"}') return end
+local state = ({[2] = 'playing', [3] = 'paused'})[vlc.var.get(input, 'state')] or 'other'
+print('{"state":"' .. state .. '","time_us":' .. string.format('%d', vlc.var.get(input, 'time')) ..
+      ',"rate":' .. tostring(vlc.var.get(input, 'rate')) .. '}')
+?>
