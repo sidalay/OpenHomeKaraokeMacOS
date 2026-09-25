@@ -55,6 +55,8 @@ class Karaoke:
 	now_playing_user = None
 	now_playing_transpose = 0
 	now_playing_slave = ''
+	playing_bundle = None       # the combined file VLC is playing, see make_bundle()
+	_bundle_cache = None
 	audio_delay = 0
 	has_video = True
 	has_subtitle = False
@@ -653,7 +655,12 @@ class Karaoke:
 				extra_params1 += ['--drawable-hwnd' if self.platform == 'windows' else '--drawable-xid',
 				                  hex(pygame.display.get_wm_info()['window'])]
 			self.now_playing_slave = self.try_set_vocal_mode(self.vocal_mode, file_path)
-			if os.path.isfile(self.now_playing_slave):
+			self.playing_bundle = self.make_bundle(file_path)
+			play_path = file_path
+			if self.playing_bundle:
+				play_path = self.playing_bundle['path']
+				extra_params1 += [f'--audio-track={self.playing_bundle["tracks"].get(self.vocal_mode, 0)}']
+			elif os.path.isfile(self.now_playing_slave):
 				extra_params1 += [f'--input-slave={self.now_playing_slave}', '--audio-track=1']
 			if self.audio_delay:
 				extra_params1 += [f'--audio-desync={self.audio_delay * 1000}']
@@ -668,10 +675,12 @@ class Karaoke:
 			self.is_paused = ('--start-paused' in extra_params1)
 			if self.normalize_vol and self.logical_volume is not None:
 				self.volume = self.logical_volume / np.sqrt(self.get_mp3_volume(file_path))
-			if self.now_playing_transpose == 0:
-				xml = self.vlcclient.play_file(file_path, self.volume, extra_params + extra_params1)
+			# With live control the pitch filter is always loaded (it is transparent at 0
+			# semitones), so the pitch can later be changed without a restart
+			if self.now_playing_transpose == 0 and not self.vlcclient.live_control:
+				xml = self.vlcclient.play_file(play_path, self.volume, extra_params + extra_params1)
 			else:
-				xml = self.vlcclient.play_file_transpose(file_path, self.now_playing_transpose, self.volume, extra_params + extra_params1)
+				xml = self.vlcclient.play_file_transpose(play_path, self.now_playing_transpose, self.volume, extra_params + extra_params1)
 			self.has_subtitle = "<info name='Type'>Subtitle</info>" in xml
 			self.has_video = "<info name='Type'>Video</info>" in xml
 			self.volume = round(float(self.vlcclient.get_val_xml(xml, 'volume')))
@@ -686,8 +695,64 @@ class Karaoke:
 		self.status_dirty = True
 		self.render_splash_screen()  # remove old previous track
 
+	# Song containers that can be remuxed together with their split tracks
+	BUNDLE_EXTS = ('.mp4', '.m4v', '.mkv', '.webm', '.mov')
+
+	def make_bundle(self, file_path):
+		"""Remux a song with its split instrumental/vocal tracks into one temporary file.
+
+		VLC switches between the audio tracks of one file live, like the languages of a
+		movie. It cannot do that for a separate --input-slave file: the new track stays
+		silent until a seek, and VLC 3 seeks land on the previous keyframe, a second or
+		two back. So with everything in one file, Music/Mixed/Voice switches without a
+		restart or a jump. Stream copy only (~0.1s). Returns None if not possible, and
+		play_file then falls back to --input-slave.
+		"""
+		if not self.vlcclient.live_control or os.path.splitext(file_path)[1].lower() not in self.BUNDLE_EXTS:
+			return None
+		prefix = '' if self.use_DNN_vocal else '.'
+		name = os.path.basename(file_path)
+		parts = [(mode, f'{self.download_path}{mode}/{prefix}{name}.m4a') for mode in ('nonvocal', 'vocal')]
+		parts = [(mode, path) for mode, path in parts if os.path.isfile(path)]
+		if not parts:
+			return None
+		key = (file_path, self.use_DNN_vocal, tuple((path, os.path.getmtime(path)) for _, path in parts))
+		cached = self._bundle_cache
+		if cached and cached['key'] == key and os.path.isfile(cached['path']):
+			return cached
+		os.makedirs(self.vlcclient.tmp_dir, exist_ok = True)
+		out = os.path.join(self.vlcclient.tmp_dir, 'bundle.mkv')
+		part = os.path.join(self.vlcclient.tmp_dir, 'bundle.part.mkv')
+		cmd = ['ffmpeg', '-y', '-loglevel', 'error', '-i', file_path]
+		for _, path in parts:
+			cmd += ['-i', path]
+		cmd += ['-map', '0:v?', '-map', '0:a:0']
+		for i in range(len(parts)):
+			cmd += ['-map', f'{i + 1}:a:0']
+		cmd += ['-map', '0:s?', '-c', 'copy']
+		# Matroska cannot hold MP4's mov_text subtitles; retry converting them to SRT
+		for extra in ([], ['-c:s', 'srt']):
+			try:
+				r = subprocess.run(cmd + extra + [part], capture_output = True, timeout = 60)
+				if r.returncode == 0:
+					# rename, don't overwrite: a still-running VLC keeps reading the old file
+					os.replace(part, out)
+					self._bundle_cache = {'key': key, 'path': out, 'source': file_path, 'dnn': self.use_DNN_vocal,
+					                      'tracks': dict([('mixed', 0)] + [(mode, i + 1) for i, (mode, _) in enumerate(parts)])}
+					return self._bundle_cache
+				error = r.stderr.decode('utf-8', 'ignore').strip()
+			except Exception as e:
+				error = str(e)
+		logging.warning(f"Could not combine {name} with its split tracks, vocal changes will restart playback: {error}")
+		return None
+
 	def play_transposed(self, semitones):
 		if self.use_vlc:
+			# Live: retune the running player's pitch filter (no restart, no jump back)
+			if self.vlcclient.set_pitch_live(semitones):
+				self.now_playing_transpose = int(float(semitones))
+				self.status_dirty = True
+				return
 			self.now_playing_transpose = semitones
 			status_xml = self.vlcclient.command().text if self.is_paused else self.vlcclient.pause(False).text
 			info = self.vlcclient.get_info_xml(status_xml)
@@ -987,6 +1052,15 @@ class Karaoke:
 			play_slave = self.try_set_vocal_mode(mode, self.now_playing_filename)
 			if not force and self.now_playing_slave == play_slave:
 				return
+			# Live: select another audio track of the combined file (see make_bundle).
+			# force=True (subtitle toggle) needs a relaunch, so it skips this.
+			b = self.playing_bundle
+			if not force and b and b['source'] == self.now_playing_filename and b['dnn'] == self.use_DNN_vocal \
+					and self.vocal_mode in b['tracks'] and self.vlcclient.select_audio_track_live(b['tracks'][self.vocal_mode]):
+				self.now_playing_slave = play_slave
+				self.get_vocal_info(True)
+				self.status_dirty = True
+				return
 			status_xml = self.vlcclient.command().text if self.is_paused else self.vlcclient.pause(False).text
 			info = self.vlcclient.get_info_xml(status_xml)
 			posi = info['position']*info['length']
@@ -1091,6 +1165,7 @@ class Karaoke:
 		self.is_paused = True
 		self.now_playing_transpose = 0
 		self.now_playing_slave = ''
+		self.playing_bundle = None
 		self.audio_delay = 0
 		self.subtitle_delay = 0
 		self.show_subtitle = True

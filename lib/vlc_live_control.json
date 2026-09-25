@@ -1,0 +1,63 @@
+<?vlc --[[
+OpenHomeKaraoke live controls for VLC's HTTP interface.
+
+lib/vlcclient.py copies VLC's own HTTP interface directory, adds this file to it as
+requests/ohk.json, and starts VLC with --http-src pointing at the copy. The stock API
+cannot do either of these without restarting playback (a pause and a jump back to the
+previous video keyframe):
+
+  requests/ohk.json?cmd=pitch&val=<semitones>   change the pitch of the playing song
+  requests/ohk.json?cmd=track&idx=<n>           play the n-th audio track (0-based)
+  requests/ohk.json                             report the current state
+
+Pitch needs VLC started with --audio-filter scaletempo_pitch. The reply is JSON:
+{"pitch": <semitones or null>, "track": <current index or null>, "tracks": <count>}
+]]
+
+local input = vlc.object.input()
+local aout = vlc.object.aout()
+local playlist = vlc.object.playlist()
+local cmd = _GET['cmd']
+
+-- the selectable audio tracks, in order ("Disable" has id -1 and is skipped)
+local function audio_tracks()
+	local list = {}
+	if input then
+		local ids = vlc.var.get_list(input, 'audio-es')
+		for i = 1, #ids do
+			if ids[i] >= 0 then list[#list + 1] = ids[i] end
+		end
+	end
+	return list
+end
+
+if cmd == 'pitch' then
+	local val = tonumber(_GET['val'])
+	if val then
+		-- Also stored on the playlist: selecting another audio track rebuilds the audio
+		-- filters, and the new scaletempo_pitch inherits its value from there.
+		pcall(vlc.var.create, playlist, 'pitch-shift', val)
+		pcall(vlc.var.set, playlist, 'pitch-shift', val)
+		if aout then pcall(vlc.var.set, aout, 'pitch-shift', val) end
+	end
+elseif cmd == 'track' and input then
+	local id = audio_tracks()[(tonumber(_GET['idx']) or -1) + 1]
+	if id then vlc.var.set(input, 'audio-es', id) end
+end
+
+local pitch = 'null'
+local ok, val = pcall(vlc.var.get, playlist, 'pitch-shift')
+if not ok or val == nil then ok, val = pcall(vlc.var.get, aout, 'pitch-shift') end
+if ok and val ~= nil then pitch = tostring(val) end
+
+local track = 'null'
+local tracks = audio_tracks()
+if input then
+	local current = vlc.var.get(input, 'audio-es')
+	for i = 1, #tracks do
+		if tracks[i] == current then track = tostring(i - 1) end
+	end
+end
+
+print('{"pitch":' .. pitch .. ',"track":' .. track .. ',"tracks":' .. #tracks .. '}')
+?>

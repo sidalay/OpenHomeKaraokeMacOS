@@ -39,6 +39,24 @@ def get_default_vlc_path(platform):
 		return 'vlc'
 
 
+def find_vlc_http_dir(vlc_path):
+	"""VLC's own HTTP interface directory (the one holding requests/status.xml), or None."""
+	base = os.path.dirname(os.path.realpath(vlc_path)) if vlc_path and os.path.isabs(vlc_path) else ''
+	candidates = [
+		os.path.join(base, 'share', 'lua', 'http'),      # macOS: inside VLC.app
+		os.path.join(base, 'lua', 'http'),               # Windows: next to vlc.exe
+		'/usr/lib/x86_64-linux-gnu/vlc/lua/http',        # Debian / Ubuntu / Raspberry Pi OS
+		'/usr/lib/aarch64-linux-gnu/vlc/lua/http',
+		'/usr/lib/arm-linux-gnueabihf/vlc/lua/http',
+		'/usr/lib/vlc/lua/http', '/usr/lib64/vlc/lua/http',
+		'/usr/share/vlc/lua/http', '/usr/local/share/vlc/lua/http',
+	]
+	for c in candidates:
+		if c and os.path.isfile(os.path.join(c, 'requests', 'status.xml')):
+			return c
+	return None
+
+
 class VLCClient:
 	vol_increment = 10
 
@@ -101,6 +119,12 @@ class VLCClient:
 		if self.qrcode and self.url:
 			self.cmd_base += self.get_marquee_cmd()
 
+		# Live pitch and audio-track changes (see lib/vlc_live_control.json). Without them
+		# every change restarts VLC: a pause, then a jump back to the previous keyframe.
+		self.live_control = self.install_live_control()
+		if self.live_control:
+			self.cmd_base += ["--http-src", self.http_src_dir]
+
 		logging.info("VLC command base: " + " ".join(self.cmd_base))
 
 		self.volume_offset = 10
@@ -108,6 +132,46 @@ class VLCClient:
 		self.process = None
 		self.last_status_text = ""
 		self.last_status_time = time.time()
+
+	def install_live_control(self):
+		"""Copy VLC's HTTP interface and add our control page to it. False if impossible."""
+		try:
+			stock = find_vlc_http_dir(self.path)
+			if not stock:
+				logging.warning("VLC's HTTP interface files not found: pitch and vocal changes will restart playback")
+				return False
+			self.http_src_dir = os.path.join(self.tmp_dir, 'vlc-http')
+			shutil.rmtree(self.http_src_dir, ignore_errors = True)
+			shutil.copytree(stock, self.http_src_dir)
+			page = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vlc_live_control.json')
+			shutil.copyfile(page, os.path.join(self.http_src_dir, 'requests', 'ohk.json'))
+			self.http_live_endpoint = "http://localhost:%s/requests/ohk.json" % self.port
+			logging.info(f"VLC live control installed ({stock} -> {self.http_src_dir})")
+			return True
+		except Exception as e:
+			logging.warning(f"Could not install VLC live control, pitch and vocal changes will restart playback: {e}")
+			return False
+
+	def live(self, **params):
+		"""Call our control page; returns its JSON reply, or None if unavailable."""
+		if not self.live_control or not self.is_running() or self.is_transposing:
+			return None
+		try:
+			r = requests.get(self.http_live_endpoint, params = params, auth = ("", self.http_password), timeout = 2)
+			return r.json() if r.status_code == 200 else None
+		except Exception as e:
+			logging.warning(f"VLC live control request {params} failed: {e}")
+			return None
+
+	def set_pitch_live(self, semitones):
+		"""Change the pitch of the playing song without restarting it. True on success."""
+		reply = self.live(cmd = 'pitch', val = float(semitones))
+		return reply is not None and reply.get('pitch') is not None and abs(float(reply['pitch']) - float(semitones)) < 1e-6
+
+	def select_audio_track_live(self, index):
+		"""Play the index-th audio track (0-based) without restarting. True on success."""
+		reply = self.live(cmd = 'track', idx = int(index))
+		return reply is not None and reply.get('track') == int(index)
 
 	def get_marquee_cmd(self):
 		return ["--sub-source", 'logo{file=%s,position=9,x=2,opacity=200}:marq{marquee="Pikaraoke - connect at: \n%s",position=9,x=38,color=0xFFFFFF,size=11,opacity=200}' % (self.qrcode, self.url)]
