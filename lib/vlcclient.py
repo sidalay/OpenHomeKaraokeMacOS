@@ -163,6 +163,12 @@ class VLCClient:
 			logging.warning(f"VLC live control request {params} failed: {e}")
 			return None
 
+	def clock(self):
+		"""(perf_counter when the request started, reply) for AVSync, or None."""
+		t0 = time.perf_counter()
+		reply = self.live()
+		return (t0, reply) if reply else None
+
 	def set_pitch_live(self, semitones):
 		"""Change the pitch of the playing song without restarting it. True on success."""
 		reply = self.live(cmd = 'pitch', val = float(semitones))

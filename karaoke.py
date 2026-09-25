@@ -18,6 +18,7 @@ from flask import request
 from lib import omxclient, vlcclient
 from lib.get_platform import *
 from lib.NLP import *
+from lib import audio_engine
 from app import getString
 
 if get_platform() != "windows":
@@ -57,6 +58,12 @@ class Karaoke:
 	now_playing_slave = ''
 	playing_bundle = None       # the combined file VLC is playing, see make_bundle()
 	_bundle_cache = None
+	use_engine = False          # play song audio through lib/audio_engine.py (VLC shows video)
+	engine_error = ''           # why the engine is unavailable, if it is
+	engine = None               # the current song's audio_engine.Engine
+	av_sync = None              # keeps it on VLC's clock
+	vocal_blend = 0.0           # -1 instrumental only, 0 original recording, +1 vocals only
+	_split_loading = False
 	audio_delay = 0
 	has_video = True
 	has_subtitle = False
@@ -151,6 +158,7 @@ class Karaoke:
 		if self.use_vlc:
 			self.vlcclient = vlcclient.VLCClient(port = self.vlc_port, path = self.vlc_path,
 			                                     qrcode = (self.qr_code_path if self.show_overlay else None), url = self.url)
+			self.init_audio_engine(getattr(args, 'audio_engine', 'auto'))
 		else:
 			self.omxclient = omxclient.OMXClient(path = self.omxplayer_path, adev = self.omxplayer_adev,
 			                                     dual_screen = self.dual_screen, volume_offset = self.volume_offset)
@@ -655,9 +663,18 @@ class Karaoke:
 				extra_params1 += ['--drawable-hwnd' if self.platform == 'windows' else '--drawable-xid',
 				                  hex(pygame.display.get_wm_info()['window'])]
 			self.now_playing_slave = self.try_set_vocal_mode(self.vocal_mode, file_path)
-			self.playing_bundle = self.make_bundle(file_path)
+			self.stop_engine()
+			if self.save_delays and 'vocal_blend' in saved_delays:
+				self.vocal_blend = saved_delays['vocal_blend']
+			if self.normalize_vol and self.logical_volume is not None:
+				self.volume = self.logical_volume / np.sqrt(self.get_mp3_volume(file_path))
+			use_engine = self.start_engine(file_path)
 			play_path = file_path
-			if self.playing_bundle:
+			self.playing_bundle = None if use_engine else self.make_bundle(file_path)
+			if use_engine:
+				# the engine plays the audio (and takes care of key and vocal level)
+				extra_params1 += ['--no-audio']
+			elif self.playing_bundle:
 				play_path = self.playing_bundle['path']
 				extra_params1 += [f'--audio-track={self.playing_bundle["tracks"].get(self.vocal_mode, 0)}']
 			elif os.path.isfile(self.now_playing_slave):
@@ -672,18 +689,25 @@ class Karaoke:
 				extra_params1 += [f'--rate={self.play_speed}']
 			self.now_playing = self.filename_from_path(file_path)
 			self.now_playing_filename = file_path
-			self.is_paused = ('--start-paused' in extra_params1)
-			if self.normalize_vol and self.logical_volume is not None:
-				self.volume = self.logical_volume / np.sqrt(self.get_mp3_volume(file_path))
+			self.is_paused = ('--start-paused' in extra_params1) or ('--start-paused' in extra_params)
+			if use_engine:
+				# volume 0: VLC has no audio output, so don't wait for it to report a volume
+				xml = self.vlcclient.play_file(play_path, 0, extra_params + extra_params1)
 			# With live control the pitch filter is always loaded (it is transparent at 0
 			# semitones), so the pitch can later be changed without a restart
-			if self.now_playing_transpose == 0 and not self.vlcclient.live_control:
+			elif self.now_playing_transpose == 0 and not self.vlcclient.live_control:
 				xml = self.vlcclient.play_file(play_path, self.volume, extra_params + extra_params1)
 			else:
 				xml = self.vlcclient.play_file_transpose(play_path, self.now_playing_transpose, self.volume, extra_params + extra_params1)
+			xml = xml or ''
 			self.has_subtitle = "<info name='Type'>Subtitle</info>" in xml
 			self.has_video = "<info name='Type'>Video</info>" in xml
-			self.volume = round(float(self.vlcclient.get_val_xml(xml, 'volume')))
+			if use_engine:
+				self.av_sync = audio_engine.AVSync(self.engine, self.vlcclient.clock)
+				self.av_sync.audio_delay = self.audio_delay
+				self.av_sync.start()
+			elif xml:
+				self.volume = round(float(self.vlcclient.get_val_xml(xml, 'volume')))
 			if self.normalize_vol:
 				self.media_vol = self.get_mp3_volume(self.now_playing_filename)
 				self.logical_volume = self.volume * np.sqrt(self.media_vol)
@@ -694,6 +718,118 @@ class Karaoke:
 		self.switchingSong = False
 		self.status_dirty = True
 		self.render_splash_screen()  # remove old previous track
+
+	# ---------------------------------------------------------------- audio engine
+
+	# video containers whose audio the engine plays (audio-only songs, e.g. mp3+cdg zips,
+	# keep VLC's audio: VLC with --no-audio would have nothing to show and no clock)
+	ENGINE_EXTS = ('.mp4', '.m4v', '.mkv', '.webm', '.mov', '.avi', '.flv')
+
+	def init_audio_engine(self, setting):
+		"""setting: 'auto' (use it when possible), 'on' or 'off' (--audio-engine)."""
+		ok, why = audio_engine.available()
+		if ok and not self.vlcclient.live_control:
+			ok, why = False, "VLC live control is unavailable (the engine follows VLC's clock through it)"
+		self.engine_error = '' if ok else why
+		self.use_engine = ok and setting != 'off'
+		if self.use_engine:
+			# -v arrives as a string. The start volume normally comes from VLC's saved
+			# volume, which the engine never sees (VLC has no audio), so when none is
+			# given start at 100% (256 in VLC's units).
+			try:
+				self.volume = float(self.volume)
+			except (TypeError, ValueError):
+				self.volume = 0
+			if self.volume <= 0:
+				self.volume = 256
+		if setting == 'on' and not ok:
+			logging.warning(f"--audio-engine on, but the engine cannot run: {why}. Using VLC's audio.")
+		logging.info(f"Song audio: {'audio engine (smooth vocal slider)' if self.use_engine else 'VLC'}"
+		             + (f" ({why})" if why else ''))
+
+	def set_audio_engine(self, on):
+		"""Switch between the engine and VLC's own audio; the current song continues."""
+		on = bool(on) and not self.engine_error
+		if on == self.use_engine:
+			return self.use_engine
+		self.use_engine = on
+		logging.info(f"Song audio switched to {'the audio engine' if on else 'VLC'}")
+		if self.is_file_playing() and self.now_playing_filename:
+			self.relaunch()
+		return self.use_engine
+
+	def start_engine(self, file_path):
+		"""Load `file_path`'s audio into a new engine. False (use VLC's audio) if not possible."""
+		if not self.use_engine or os.path.splitext(file_path)[1].lower() not in self.ENGINE_EXTS:
+			return False
+		try:
+			engine = audio_engine.Engine(file_path)
+		except Exception as e:
+			logging.warning(f"Audio engine cannot play {os.path.basename(file_path)}, using VLC's audio: {e}")
+			return False
+		engine.volume = self.volume / 256.0          # VLC volume units: 256 = 100%
+		engine.semitones = float(self.now_playing_transpose)
+		engine.speed = float(self.play_speed)
+		engine.blend = self.vocal_blend
+		try:
+			engine.start()
+		except Exception as e:
+			logging.warning(f"Audio engine cannot open the audio output, using VLC's audio: {e}")
+			engine.close()
+			return False
+		self.engine = engine
+		self.load_split_tracks(file_path)
+		return True
+
+	def stop_engine(self):
+		if self.av_sync:
+			self.av_sync.stop()
+			self.av_sync = None
+		if self.engine:
+			self.engine.close()
+			self.engine = None
+
+	def split_track_paths(self, file_path):
+		prefix = '' if self.use_DNN_vocal else '.'
+		name = os.path.basename(file_path)
+		paths = [f'{self.download_path}{mode}/{prefix}{name}.m4a' for mode in ('nonvocal', 'vocal')]
+		return paths if all(os.path.isfile(p) for p in paths) else None
+
+	def load_split_tracks(self, file_path):
+		"""Give the engine the split tracks in the background (the song is already playing
+		its original audio; the vocal slider takes effect once they are in)."""
+		engine, paths = self.engine, self.split_track_paths(file_path)
+		if not engine or not paths or self._split_loading:
+			return
+		self._split_loading = True
+		def load():
+			try:
+				engine.add_split(*paths)
+				logging.info(f"Audio engine: split tracks loaded {engine.split_info}")
+				self.status_dirty = True
+			except Exception as e:
+				logging.warning(f"Audio engine could not load the split tracks: {e}")
+			finally:
+				self._split_loading = False
+		threading.Thread(target = load, daemon = True).start()
+
+	def set_vocal_blend(self, value):
+		"""-1 instrumental only, 0 original recording, +1 vocals only (any value between)."""
+		self.vocal_blend = float(np.clip(float(value), -1, 1))
+		if self.engine:
+			self.engine.blend = self.vocal_blend
+		if self.save_delays and self.now_playing_filename:
+			self.set_delays_dict(self.now_playing_filename, 'vocal_blend', self.vocal_blend, 0.0)
+		self.status_dirty = True
+		return self.vocal_blend
+
+	def relaunch(self, force_paused = None):
+		"""Restart the current song where it is (to apply what VLC only reads at launch)."""
+		status_xml = self.vlcclient.command().text if self.is_paused else self.vlcclient.pause(False).text
+		info = self.vlcclient.get_info_xml(status_xml)
+		posi = info['position'] * info['length']
+		paused = self.is_paused if force_paused is None else force_paused
+		self.play_file(self.now_playing_filename, [f'--start-time={posi}'] + (['--start-paused'] if paused else []))
 
 	# Song containers that can be remuxed together with their split tracks
 	BUNDLE_EXTS = ('.mp4', '.m4v', '.mkv', '.webm', '.mov')
@@ -747,6 +883,11 @@ class Karaoke:
 		return None
 
 	def play_transposed(self, semitones):
+		if self.engine:
+			self.engine.semitones = float(semitones)
+			self.now_playing_transpose = int(float(semitones))
+			self.status_dirty = True
+			return
 		if self.use_vlc:
 			# Live: retune the running player's pitch filter (no restart, no jump back)
 			if self.vlcclient.set_pitch_live(semitones):
@@ -862,6 +1003,7 @@ class Karaoke:
 	def skip(self):
 		if self.is_file_playing():
 			logging.info("Skipping: " + self.now_playing)
+			self.stop_engine()
 			if self.use_vlc:
 				self.vlcclient.stop()
 			else:
@@ -875,6 +1017,8 @@ class Karaoke:
 		if self.is_file_playing():
 			if self.use_vlc:
 				self.vlcclient.seek(seek_sec)
+				if self.av_sync:
+					self.av_sync.seek(float(seek_sec))
 			else:
 				logging.warning("OMXplayer cannot seek track!")
 			return True
@@ -912,7 +1056,9 @@ class Karaoke:
 			self.set_delays_dict(self.now_playing_filename, 'audio_delay', self.audio_delay)
 
 		if self.is_file_playing():
-			if self.use_vlc:
+			if self.av_sync:
+				self.av_sync.audio_delay = self.audio_delay     # VLC has no audio to delay
+			elif self.use_vlc:
 				self.vlcclient.command(f"audiodelay&val={self.audio_delay}")
 			else:
 				logging.warning("OMXplayer cannot set audio delay!")
@@ -964,6 +1110,8 @@ class Karaoke:
 				else:
 					self.vlcclient.play()
 					self.is_paused = False
+				if self.engine:
+					self.engine.pause() if self.is_paused else self.engine.play()
 			else:
 				if self.omxclient.is_playing():
 					self.omxclient.pause()
@@ -977,7 +1125,17 @@ class Karaoke:
 			logging.warning("Tried to pause, but no file is playing!")
 			return False
 
+	def engine_vol_set(self, volume):
+		"""Volume in VLC's units (256 = 100%), applied by the engine."""
+		self.volume = int(round(np.clip(float(volume), 0, 512)))
+		self.engine.volume = self.volume / 256.0
+		self.update_logical_vol()
+		self.status_dirty = True
+		return self.volume
+
 	def vol_up(self):
+		if self.is_file_playing() and self.engine:
+			return self.engine_vol_set(self.volume + self.vlcclient.vol_increment)
 		if self.is_file_playing():
 			if self.use_vlc:
 				self.vlcclient.vol_up()
@@ -992,6 +1150,8 @@ class Karaoke:
 			return False
 
 	def vol_down(self):
+		if self.is_file_playing() and self.engine:
+			return self.engine_vol_set(self.volume - self.vlcclient.vol_increment)
 		if self.is_file_playing():
 			if self.use_vlc:
 				self.vlcclient.vol_down()
@@ -1006,6 +1166,8 @@ class Karaoke:
 			return False
 
 	def vol_set(self, volume):
+		if self.is_file_playing() and self.engine:
+			return self.engine_vol_set(volume)
 		if self.is_file_playing():
 			if self.use_vlc:
 				self.vlcclient.vol_set(volume)
@@ -1026,6 +1188,9 @@ class Karaoke:
 				self.vlcclient.playspeed_set(speed)
 				xml = self.vlcclient.command().text
 				self.play_speed = float(self.vlcclient.get_val_xml(xml, 'rate'))
+				if self.engine:
+					self.engine.speed = float(speed)
+					self.av_sync and self.av_sync.speed_changed()
 				logging.info(f"Playback speed set to {self.play_speed}")
 			else:
 				logging.warning("Only VLC player can set playback speed, ignored!")
@@ -1048,6 +1213,15 @@ class Karaoke:
 
 	def play_vocal(self, mode = None, force = False):
 		# mode=vocal/nonvocal/mixed, or else (use current)
+		if self.engine and not force:
+			if mode in ('nonvocal', 'mixed', 'vocal'):
+				self.set_vocal_blend({'nonvocal': -1.0, 'mixed': 0.0, 'vocal': 1.0}[mode])
+			else:
+				# splitter mode (DNN / stereo) changed: swap in the other set of tracks
+				self.engine.remove_split()
+				self.load_split_tracks(self.now_playing_filename)
+			self.status_dirty = True
+			return
 		if self.use_vlc:
 			play_slave = self.try_set_vocal_mode(mode, self.now_playing_filename)
 			if not force and self.now_playing_slave == play_slave:
@@ -1096,7 +1270,13 @@ class Karaoke:
 			mask |= 0b10000000
 		if self.use_DNN_vocal:
 			mask |= 0b01000000
-		mask |= (self.get_vocal_mode() << 4)
+		if self.engine:
+			if not self.engine.has_split:
+				self.load_split_tracks(self.now_playing_filename)   # the splitter may just have finished
+			b = self.vocal_blend
+			mask |= (1 if b <= -0.5 else 3 if b >= 0.5 else 2) << 4
+		else:
+			mask |= (self.get_vocal_mode() << 4)
 		self.last_vocal_info = mask
 		self.last_vocal_time = tm
 		return mask
@@ -1112,12 +1292,18 @@ class Karaoke:
 			'state': ('paused' if self.omxclient.paused else 'playing')
 		}
 		self.player_state.update(new_state)
+		if self.engine:
+			self.player_state['volume'] = self.volume
+			self.player_state['audiodelay'] = self.audio_delay
 		return defaultdict(lambda: None, self.player_state)
 
 	def restart(self):
 		if self.is_file_playing():
 			if self.use_vlc:
 				self.vlcclient.restart()
+				if self.av_sync:
+					self.av_sync.seek(0.0)
+					self.engine.play()
 			else:
 				self.omxclient.restart()
 			self.is_paused = False
@@ -1166,6 +1352,7 @@ class Karaoke:
 		self.now_playing_transpose = 0
 		self.now_playing_slave = ''
 		self.playing_bundle = None
+		self.stop_engine()
 		self.audio_delay = 0
 		self.subtitle_delay = 0
 		self.show_subtitle = True
@@ -1241,7 +1428,8 @@ class Karaoke:
 		if enable and shutil.which('ffmpeg') is None:
 			self.normalize_vol = enable = False
 		if enable and self.now_playing_filename:
-			self.volume = self.vlcclient.get_info_xml()['volume']
+			if not self.engine:
+				self.volume = self.vlcclient.get_info_xml()['volume']
 			self.media_vol = self.get_mp3_volume(self.now_playing_filename)
 			self.update_logical_vol()
 		return str(self.logical_volume)
@@ -1309,6 +1497,7 @@ class Karaoke:
 		# Clean up before quit
 		self.streamer_stop()
 		self.vocal_stop()
+		self.stop_engine()
 		vplayer = self.vlcclient if self.use_vlc else self.omxclient
 		if vplayer is not None: vplayer.stop()
 		self.auto_save_delays()

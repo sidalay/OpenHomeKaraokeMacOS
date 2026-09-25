@@ -311,17 +311,9 @@ html.themed {
 .themed #delay-dec, .themed #subdelay-dec { color: #F0A28A !important; }
 .themed #delay-inc, .themed #subdelay-inc { color: #B9D3A0 !important; }
 
-/* Music / Mixed / Voice switch (colors are inline in f_home.html) */
-.themed #s3-inner {
-	background-color: rgba(246, 238, 227, 0.14) !important;
-	box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
-}
-.themed .redButton {
-	background-color: var(--ohk-player-accent) !important;
-	box-shadow: 0 0 0 3px rgba(227, 185, 142, 0.25);
-}
-.themed .legendText { color: var(--ohk-player-text) !important; font-family: var(--ohk-font) !important; }
-.themed .legendText.is-disabled { color: rgba(246, 238, 227, 0.3) !important; }
+/* Vocals slider (f_home.html): the range input is styled with the other sliders below */
+.themed .vocal-ends { color: var(--ohk-player-muted); opacity: 1; }
+.themed #vocal-val { color: var(--ohk-player-accent); font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- sliders */
 

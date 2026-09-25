@@ -27,3 +27,5 @@ tqdm>=4.30
 # 0.10.x imports pkg_resources, which setuptools >= 81 no longer ships
 librosa>=0.11
 soundfile
+# audio engine (lib/audio_engine.py); on Linux / Raspberry Pi also: apt install libportaudio2
+sounddevice

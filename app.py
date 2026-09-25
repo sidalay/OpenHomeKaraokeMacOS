@@ -205,7 +205,9 @@ def nowplaying(return_json=True):
 			"audio_delay": s['audiodelay'],
 			"vol_norm": K.normalize_vol,
 			"play_speed": s['rate'],
-			"vocal_info": K.get_vocal_info()
+			"vocal_info": K.get_vocal_info(),
+			"vocal_blend": K.vocal_blend,
+			"audio_engine": K.engine is not None,   # this song's audio is the engine's
 		}
 		if K.has_subtitle:
 			rc['subtitle_delay'] = s['subtitledelay']
@@ -409,6 +411,43 @@ def transpose(semitones):
 @app.route("/play_vocal/<mode>", methods = ["GET"])
 def play_vocal(mode):
 	K.play_vocal(mode)
+	return ''
+
+
+@app.route("/vocal_blend/<value>", methods = ["GET"])
+def vocal_blend(value):
+	# -1 instrumental only .. 0 original recording .. +1 vocals only (audio engine)
+	if K.engine:
+		return json.dumps(K.set_vocal_blend(value))
+	# VLC's own audio: nearest of the three modes
+	v = float(value)
+	K.play_vocal('nonvocal' if v <= -0.5 else 'vocal' if v >= 0.5 else 'mixed')
+	return json.dumps(v)
+
+
+@app.route("/audio_engine_status")
+def audio_engine_status():
+	# read-only diagnostics: is the engine playing this song, and how well is it in sync
+	e, sync = K.engine, K.av_sync
+	cost = list(e.callback_cost) if e else []
+	return json.dumps({
+		'enabled': K.use_engine, 'unavailable_reason': K.engine_error or None,
+		'playing_this_song': e is not None,
+		'split_tracks': (e.split_info if e and e.has_split else None),
+		'blend': K.vocal_blend, 'volume': K.volume,
+		'drift_ms': (round(sync.drift * 1000, 1) if sync and sync.drift is not None else None),
+		'tempo_trim_pct': (round((e.nudge - 1) * 100, 2) if e else None),
+		'vlc_speed_measured': (round(sync.model.slope, 4) if sync else None),
+		'dropouts': (e.underflows if e else None),
+		'callback_ms_mean': (round(sum(cost) / len(cost) * 1000, 2) if cost else None),
+		'output_latency_ms': (round(e.output_latency * 1000, 1) if e else None),
+	})
+
+
+@app.route("/set_audio_engine/<mode>")
+def set_audio_engine(mode):
+	if is_admin():
+		K.set_audio_engine(mode.lower() == 'true')
 	return ''
 
 
@@ -762,6 +801,8 @@ def info():
 		youtubedl_version = youtubedl_version,
 		is_pi = is_pi,
 		use_DNN = K.use_DNN_vocal,
+		use_engine = K.use_engine,
+		engine_error = K.engine_error,
 		norm_vol = K.normalize_vol,
 		pikaraoke_version = VERSION,
 		download_path = K.download_path,
@@ -818,6 +859,8 @@ def f_info():
 		youtubedl_version = youtubedl_version,
 		is_pi = is_pi,
 		use_DNN = K.use_DNN_vocal,
+		use_engine = K.use_engine,
+		engine_error = K.engine_error,
 		norm_vol = K.normalize_vol,
 		pikaraoke_version = VERSION,
 		download_path = K.download_path,
@@ -1198,6 +1241,14 @@ if __name__ == "__main__":
 		help = "Use OMX Player to play video instead of the default VLC Player. This may be better-performing on older raspberry pi devices."
 		       " Certain features like key change and cdg support wont be available. Note: if you want to play audio to the headphone jack on a rpi,"
 		       " you'll need to configure this in raspi-config: 'Advanced Options > Audio > Force 3.5mm (headphone)'",
+	)
+	parser.add_argument(
+		"--audio-engine",
+		choices = ['auto', 'on', 'off'],
+		default = 'auto',
+		help = "Play song audio through the built-in audio engine (VLC shows the video): smooth vocal slider and "
+		       "gapless key changes. 'auto' uses it when possible (needs the sounddevice package), 'off' keeps "
+		       "VLC's own audio. Can also be switched on the web UI's Info page. (default: auto)",
 	)
 	parser.add_argument(
 		"--use-vlc",

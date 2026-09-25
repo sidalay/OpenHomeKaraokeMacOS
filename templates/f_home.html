@@ -6,7 +6,7 @@ var audiodelay_typing = false;
 var playspeed_typing = false;
 var subdelay_typing = false;
 var volume_changing = false;
-var toggleSwitch, seektrack;
+var seektrack;
 var obj = {};
 function checkMobile() {
 	let check = false;
@@ -66,9 +66,18 @@ function update(data){
 	}
 
 	var use_DNN = obj.vocal_info&0x40;
-	s3_enable(1, use_DNN?(obj.vocal_info&1):(obj.vocal_info&4));
-	s3_enable(3, use_DNN?(obj.vocal_info&2):(obj.vocal_info&8));
-	s3_go_to((obj.vocal_info>>4)&3, false);
+	var split = use_DNN ? (obj.vocal_info & 3) : ((obj.vocal_info >> 2) & 3);   // bit 1: instrumental, bit 2: vocals
+	vb_engine = !!obj.audio_engine;
+	// the engine needs both split tracks; VLC's own audio can use either one
+	var usable = vb_engine ? split == 3 : split != 0;
+	vb.disabled = !usable;
+	$('#vocal-box').toggleClass('is-disabled', !usable);
+	if (!vb_busy) {
+		var mode = (obj.vocal_info >> 4) & 3;
+		var v = vb_engine ? obj.vocal_blend : (mode == 1 ? -1 : mode == 3 ? 1 : 0);
+		vb.value = Math.round(v * 100);
+		vb_label(v);
+	}
 	use_DNN ? $("#pytorch-logo").show():$("#pytorch-logo").hide();
 	
 	if(obj.vol_norm)
@@ -117,31 +126,36 @@ function set_reset_speed(state){
 	else $("#reset_speed").removeClass('boxedText');
 }
 
-function s3_go_to(n, do_action) {
-	if(n<1 || n>3) n=2;
-	for(var i=1; i<=3; i++){
-		if(i==n) toggleSwitch.classList.add('horizTranslate'+i);
-		else toggleSwitch.classList.remove('horizTranslate'+i);
-	}
-	if(do_action)
-		$.get("/play_vocal/"+(n==2?'mixed':(n==1?'nonvocal':'vocal')));
+// Vocals slider: -1 music only, 0 the original recording, +1 vocals only.
+// With the audio engine any position plays live; with VLC's own audio it snaps to
+// the three positions VLC can switch between (music / original / vocals).
+var vb = document.getElementById('vocal-blend'), vb_engine = false, vb_busy = false, vb_sent = 0;
+function vb_snap(v) { return Math.abs(v) < 0.06 ? 0 : v; }     // easy to land on "Original"
+function vb_three(v) { return v <= -0.5 ? -1 : v >= 0.5 ? 1 : 0; }
+function vb_label(v) {
+	// centre: the original recording; ends: music / voice only; between: the level of the part being faded
+	$('#vocal-val').text(v == 0 ? "{{getString1(243)}}" : v <= -1 ? "{{getString1(65)}}" : v >= 1 ? "{{getString1(67)}}" :
+		v < 0 ? "{{getString1(67)}} " + Math.round((1 + v) * 100) + '%' : "{{getString1(65)}} " + Math.round((1 - v) * 100) + '%');
 }
-
-function s3_enable(n, val) {
-	var s3t = document.getElementById("s3t"+n);
-	if(val!=0){
-		s3t.onclick = () =>{s3_go_to(n, true)};
-		s3t.style.color = '#ffffff';
-		s3t.classList.remove('is-disabled');
-	} else {
-		s3t.onclick = null;
-		s3t.style.color = '#444444';
-		s3t.classList.add('is-disabled');
+vb.addEventListener('input', () => {
+	vb_busy = true;
+	var v = vb_snap(vb.value / 100);
+	vb_label(vb_engine ? v : vb_three(v));
+	if (vb_engine && Date.now() - vb_sent > 60) {                // live while dragging, ~16 updates/s
+		vb_sent = Date.now();
+		$.get('/vocal_blend/' + v);
 	}
-}
+});
+vb.addEventListener('change', () => {
+	var v = vb_snap(vb.value / 100);
+	if (!vb_engine) v = vb_three(v);
+	vb.value = Math.round(v * 100);
+	vb_label(v);
+	$.get('/vocal_blend/' + v);
+	setTimeout(() => { vb_busy = false; }, 1000);                // let the status catch up first
+});
 
 $(".control-box").hide();
-toggleSwitch = document.getElementsByClassName('redButton')[0];
 
 var slider = document.getElementById("transpose");
 var slider_prev_value = 0;
@@ -266,10 +280,13 @@ hr, h1, h3, h4, p {
 body {
 	line-height: 1;
 }
-.redButton.horizTranslate1 { -webkit-transition: -webkit-transform 0.1s linear; -webkit-transform: translateX(0px);}
-.redButton.horizTranslate2 { -webkit-transition: -webkit-transform 0.1s linear; -webkit-transform: translateX(60px);}
-.redButton.horizTranslate3 { -webkit-transition: -webkit-transform 0.1s linear; -webkit-transform: translateX(120px);}
-.legendText{display:inline-block; width:50px; padding-bottom:33px; cursor:default; user-select: none;}
+.vocal-box { margin: 0.6em 0 0.8em; }
+.vocal-box.is-disabled { opacity: 0.35; }
+.vocal-track { position: relative; }
+.vocal-track input { width: 100%; position: relative; z-index: 1; }
+.vocal-track::after { content: ""; position: absolute; left: 50%; top: 50%; width: 2px; height: 14px;
+	margin: -7px 0 0 -1px; background: currentColor; opacity: 0.35; border-radius: 1px; }   /* "Original" mark */
+.vocal-ends { display: flex; justify-content: space-between; font-size: 0.8rem; opacity: 0.75; user-select: none; }
 .boxedText { padding: 2px; border: 1px solid white; font-size:1.6rem; }
 .truncate {
    overflow-x: hidden;
@@ -300,18 +317,15 @@ body {
 	<div class="is-flex" style="justify-content: space-between">
 		<h1 id="label-player-control">{{getString1(64)}}</h1>
 		<img id="pytorch-logo" width="40" src="/static/images/pytorch-logo.png" />
-		<div id="s3-outer" style="position:relative; width:150px; height:50px;">
-				<div id="s3-inner" style="background-color: #222D41; width:150px; height:28px; left:0; position:relative; top:20px; border-radius:14px;">
-						<div class="redButton horizTranslate2" style="width:16px; height:16px; background-color:#DB3D2B; border-radius:8px; position:relative; top:6px; left:6px;"></div>
-				</div>
+	</div>
 
-			 <div id="s3-text" class="is-flex" style="width:150px; display:inline-block; left:0; position:absolute; top:0;
-			 		font-family:Arial; font-size:12pt; text-align:center; justify-content: space-between">
-						<div id="s3t1" style="color:#ffffff" class="legendText" onclick="s3_go_to(1,true)">{{getString1(65)}}</div>
-						<div id="s3t2" style="color:#ffffff" class="legendText" onclick="s3_go_to(2,true)">{{getString1(66)}}</div>
-						<div id="s3t3" style="color:#ffffff" class="legendText" onclick="s3_go_to(3,true)">{{getString1(67)}}</div>
-				</div>
+	<div id="vocal-box" class="vocal-box">
+		<div class="is-flex" style="justify-content: space-between; align-items: baseline">
+			<h4>{{getString1(242)}}</h4>
+			<h4 id="vocal-val"></h4>
 		</div>
+		<div class="vocal-track"><input type="range" id="vocal-blend" min="-100" max="100" step="1" value="0"></div>
+		<div class="vocal-ends"><span>{{getString1(65)}}</span><span>{{getString1(243)}}</span><span>{{getString1(67)}}</span></div>
 	</div>
 
 	<p class="is-size-3">

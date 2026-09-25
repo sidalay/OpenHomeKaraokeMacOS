@@ -38,11 +38,12 @@ sudo apt-get update
 sudo apt-get install -y \
 	vlc ffmpeg tmux socat git \
 	python3-venv python3-dev python3-pip \
-	libsdl2-ttf-dev libjpeg-dev libsndfile1 \
+	libsdl2-ttf-dev libjpeg-dev libsndfile1 libportaudio2 \
 	x11-utils fonts-noto-cjk
 # x11-utils  -> xwininfo, used by screencapture.sh to size the capture
 # socat      -> serves the HTTP stream in screencapture.sh
 # fonts-noto-cjk -> non-Latin song titles on the splash screen
+# libportaudio2  -> audio output for the audio engine (sounddevice)
 
 # ---------------------------------------------------------------------- python
 say "Creating the virtualenv"

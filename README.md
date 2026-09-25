@@ -106,6 +106,14 @@ Tested on Apple Silicon (macOS 15, Python 3.12).
   point `--vlc-path` at a symlink such as `/usr/local/bin/vlc`, because Cocoa then
   resolves the bundle to the symlink's directory, fails to load its nib files and VLC
   aborts on startup.
+- **Audio engine (smooth vocal slider).** By default the song's audio is played by
+  `lib/audio_engine.py` while VLC shows the video (`--no-audio`). The Vocals slider on the
+  Home screen then blends music and vocals live at any position (its centre is the original
+  recording), and key and speed changes are gapless. It keeps the audio within a few ms of
+  VLC's video clock. Needs the `sounddevice` package (in `requirements.txt`). Switch it off
+  on the Info page, or start with `--audio-engine off`, to have VLC play the audio as before
+  (the slider then snaps to Music / Original / Voice). Songs without split tracks, and
+  audio-only songs, simply play normally.
 - The vocal splitter uses the Apple GPU (Metal/MPS) automatically — roughly 5x faster than
   CPU — and is started by `app.py` itself, so it needs no tmux pane of its own.
 - To launch and stop from anywhere, symlink the `openkaraoke` and `exitkaraoke` scripts

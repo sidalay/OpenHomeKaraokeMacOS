@@ -5,7 +5,9 @@ plays the song. The engine mixes the instrumental and vocal tracks live, so the 
 level is a **continuous slider with no gaps**. Key and speed are live too, and a sync
 loop keeps the audio locked to VLC's video.
 
-It is not wired into OpenHomeKaraoke yet. The app itself is unchanged.
+**This is now part of the app** as `lib/audio_engine.py` (with the original recording at the
+slider's centre, and the Vocals slider on the Home screen). This folder is kept as the
+standalone test bench it was developed and measured with.
 
 ## Try it
 

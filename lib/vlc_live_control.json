@@ -11,7 +11,10 @@ previous video keyframe):
   requests/ohk.json                             report the current state
 
 Pitch needs VLC started with --audio-filter scaletempo_pitch. The reply is JSON:
-{"pitch": <semitones or null>, "track": <current index or null>, "tracks": <count>}
+{"pitch": <semitones or null>, "track": <current index or null>, "tracks": <count>,
+ "state": "playing" | "paused" | "other", "time_us": <playback time>, "rate": <speed>}
+state/time_us/rate are what lib/audio_engine.py's AVSync follows. time_us has
+microsecond resolution; the stock status.xml only reports whole seconds.
 ]]
 
 local input = vlc.object.input()
@@ -59,5 +62,12 @@ if input then
 	end
 end
 
-print('{"pitch":' .. pitch .. ',"track":' .. track .. ',"tracks":' .. #tracks .. '}')
+local clock = ''
+if input then
+	local state = ({[2] = 'playing', [3] = 'paused'})[vlc.var.get(input, 'state')] or 'other'
+	clock = ',"state":"' .. state .. '","time_us":' .. string.format('%d', vlc.var.get(input, 'time')) ..
+	        ',"rate":' .. tostring(vlc.var.get(input, 'rate'))
+end
+
+print('{"pitch":' .. pitch .. ',"track":' .. track .. ',"tracks":' .. #tracks .. clock .. '}')
 ?>
