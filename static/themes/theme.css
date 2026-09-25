@@ -511,18 +511,15 @@ html.themed {
 }
 .themed .table tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
 .themed .table tbody tr td:last-child  { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
-/* queue drag handle: a dotted grip instead of a blank block */
 /* browse: tapping a song adds it (f_browse.html) */
 .themed tr.song-row:active td,
 .themed tr.song-row.just-tapped td { background-color: var(--ohk-accent-soft); }
 .themed tr.song-row.added .song-title::after { color: var(--ohk-success); }
 
-.themed .drag-starter {
-	background: radial-gradient(circle, var(--ohk-muted) 1.3px, transparent 1.6px) center / 7px 7px,
-		var(--ohk-inset) !important;
-	cursor: grab;
-	width: 22px;
-}
+/* queue list (f_queue.html), and the song being dragged */
+.themed .queue-item { background: var(--ohk-inset); }
+.themed .queue-num { color: var(--ohk-muted); opacity: 1; }
+.themed .queue-list.sorting .queue-item.lifted { background: var(--ohk-surface); box-shadow: var(--ohk-shadow-lg); }
 
 /* ------------------------------------------------------------------ tabs */
 

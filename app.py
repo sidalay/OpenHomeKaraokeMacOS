@@ -82,11 +82,13 @@ def status_thread():
 					ws.send(f"seektrack.value={tm};$('#seektrack-val').text(getHHMMSS({tm}));")
 			continue
 
+		# json.dumps() makes a valid JS string literal: pasting the JSON into '...' broke on
+		# any song title with an apostrophe (e.g. "What You Won't Do For Love")
 		for ip, ws in ip2websock.items():
 			if ip2pane.get(ip, '') == 'home':
-				ws.send(f"update('{status_full}')")
+				ws.send(f"update({json.dumps(status_full)})")
 			elif ip2pane.get(ip, '') == 'queue':
-				ws.send(f"update('{K.queue_json}')")
+				ws.send(f"update({json.dumps(K.queue_json)})")
 		K.status_dirty = False
 
 # Define global symbols for Jinja templates 

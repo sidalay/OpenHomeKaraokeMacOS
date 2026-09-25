@@ -1,99 +1,29 @@
-<script src="/static/jquery.ui.touch-punch.min.js"></script>
 <style>
-  .drag-starter {
-    background-color: rgb(87, 78, 11);
+  /* The queue: a plain list. Admins reorder it by dragging a song: on a phone, press and
+     hold a song for a moment, then drag (a quick swipe still scrolls); with a mouse, just
+     drag. Themes restyle the colours in static/themes/theme.css. */
+  .content ol.queue-list { list-style: none; margin: 0 0 0.6em; padding: 0; }
+  .content .queue-list li + li { margin-top: 0; }
+  .queue-item {
+    display: flex; align-items: center; gap: 0.75em;
+    padding: 0.7em 0.8em; margin-bottom: 6px; border-radius: 12px;
+    background: rgba(127, 127, 127, 0.12);
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
   }
+  .queue-num { flex: none; width: 1.6em; text-align: right; opacity: 0.55; font-variant-numeric: tabular-nums; }
+  .queue-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .queue-title { overflow-wrap: anywhere; }
+  .queue-user { font-size: 0.8em; font-weight: 600; }
+  .queue-delete { flex: none; padding: 0.3em 0.2em; }
+  .queue-list.sortable .queue-item { cursor: grab; }
+  .queue-list.sorting .queue-item { transition: transform 0.18s ease; }
+  .queue-list.sorting .queue-item.lifted {
+    transition: none; position: relative; z-index: 5; cursor: grabbing;
+    background: #464f51; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+  .queue-hint { font-size: 0.8em; opacity: 0.6; margin: 0 0 1em; }
 </style>
-<script>
-var queue = [];
-var dragging = null;
-function checkMobile() {
-	let check = false;
-	(function(a){if(/(android|bb\d+|meego).+mobile|avantgo|bada\/|blackberry|blazer|compal|elaine|fennec|hiptop|iemobile|ip(hone|od)|iris|kindle|lge |maemo|midp|mmp|mobile.+firefox|netfront|opera m(ob|in)i|palm( os)?|phone|p(ixi|re)\/|plucker|pocket|psp|series(4|6)0|symbian|treo|up\.(browser|link)|vodafone|wap|windows ce|xda|xiino|android|ipad|playbook|silk/i.test(a)||/1207|6310|6590|3gso|4thp|50[1-6]i|770s|802s|a wa|abac|ac(er|oo|s\-)|ai(ko|rn)|al(av|ca|co)|amoi|an(ex|ny|yw)|aptu|ar(ch|go)|as(te|us)|attw|au(di|\-m|r |s )|avan|be(ck|ll|nq)|bi(lb|rd)|bl(ac|az)|br(e|v)w|bumb|bw\-(n|u)|c55\/|capi|ccwa|cdm\-|cell|chtm|cldc|cmd\-|co(mp|nd)|craw|da(it|ll|ng)|dbte|dc\-s|devi|dica|dmob|do(c|p)o|ds(12|\-d)|el(49|ai)|em(l2|ul)|er(ic|k0)|esl8|ez([4-7]0|os|wa|ze)|fetc|fly(\-|_)|g1 u|g560|gene|gf\-5|g\-mo|go(\.w|od)|gr(ad|un)|haie|hcit|hd\-(m|p|t)|hei\-|hi(pt|ta)|hp( i|ip)|hs\-c|ht(c(\-| |_|a|g|p|s|t)|tp)|hu(aw|tc)|i\-(20|go|ma)|i230|iac( |\-|\/)|ibro|idea|ig01|ikom|im1k|inno|ipaq|iris|ja(t|v)a|jbro|jemu|jigs|kddi|keji|kgt( |\/)|klon|kpt |kwc\-|kyo(c|k)|le(no|xi)|lg( g|\/(k|l|u)|50|54|\-[a-w])|libw|lynx|m1\-w|m3ga|m50\/|ma(te|ui|xo)|mc(01|21|ca)|m\-cr|me(rc|ri)|mi(o8|oa|ts)|mmef|mo(01|02|bi|de|do|t(\-| |o|v)|zz)|mt(50|p1|v )|mwbp|mywa|n10[0-2]|n20[2-3]|n30(0|2)|n50(0|2|5)|n7(0(0|1)|10)|ne((c|m)\-|on|tf|wf|wg|wt)|nok(6|i)|nzph|o2im|op(ti|wv)|oran|owg1|p800|pan(a|d|t)|pdxg|pg(13|\-([1-8]|c))|phil|pire|pl(ay|uc)|pn\-2|po(ck|rt|se)|prox|psio|pt\-g|qa\-a|qc(07|12|21|32|60|\-[2-7]|i\-)|qtek|r380|r600|raks|rim9|ro(ve|zo)|s55\/|sa(ge|ma|mm|ms|ny|va)|sc(01|h\-|oo|p\-)|sdk\/|se(c(\-|0|1)|47|mc|nd|ri)|sgh\-|shar|sie(\-|m)|sk\-0|sl(45|id)|sm(al|ar|b3|it|t5)|so(ft|ny)|sp(01|h\-|v\-|v )|sy(01|mb)|t2(18|50)|t6(00|10|18)|ta(gt|lk)|tcl\-|tdg\-|tel(i|m)|tim\-|t\-mo|to(pl|sh)|ts(70|m\-|m3|m5)|tx\-9|up(\.b|g1|si)|utst|v400|v750|veri|vi(rg|te)|vk(40|5[0-3]|\-v)|vm40|voda|vulc|vx(52|53|60|61|70|80|81|83|85|98)|w3c(\-| )|webc|whit|wi(g |nc|nw)|wmlb|wonu|x700|yas\-|your|zeto|zte\-/i.test(a.substr(0,4))) check = true;})(navigator.userAgent||navigator.vendor||window.opera);
-	return check;
-};
-var isMobile = checkMobile();
-
-function update(data){
-	if (!data) return;
-	try{queue = JSON.parse(data);}
-	catch{console.log(`JSON parse error: ${data}`);return;}
-	$("#auto-refresh").html(generateQueueHTML());
-	$('#auto-refresh').sortable({
-		disabled: isMobile,
-		tolerance: "pointer",
-		revert: true,
-		start: function( event, ui ){ dragging = ui.item.index() },
-		stop: function( event, ui ){ dragging = null },
-		update: function(event, ui){
-			var end_posi = ui.item.index();
-			$.get("/queue/edit?action=move&from=" + dragging + "&to=" + end_posi + "&size=" + queue.length)
-		}
-	});
-	if(isMobile){
-		$(".drag-starter").on("touchstart",  function(ev){ $('#auto-refresh').sortable("option", "disabled", false) });
-		$(".drag-starter").on("touchend",    function(ev){ $('#auto-refresh').sortable("option", "disabled", true) });
-		$(".drag-starter").on("touchcancel", function(ev){ $('#auto-refresh').sortable("option", "disabled", true)});
-	}
-}
-
-function getQueue() {
-	if(dragging==null) $.get('/get_queue').done(update);
-}
-
-function generateQueueHTML() {
-	var html = "";
-	if (queue.length > 0) {
-		queue.forEach((e, index) => {
-			html += `
-				<tr value=${e.title}>
-					<td width="20px" style="padding: 5px 0px">${index + 1}</td>
-					{% if admin %}
-						<td width="20px" style="padding: 5px 0px" class="drag-starter">
-							<a
-								class="up-button"
-								onclick="get_refresh('/queue/edit?action=up&song=${encodeURIComponent(e.file)}')"
-								title="{{getString1(105)}}"
-								><i class="icon icon-up-circled ${index == 0 && "is-hidden"}"></i>
-							</a>
-						</td>
-						<td width="20px" style="padding: 5px 0px" class="drag-starter">
-							<a
-								class="down-button"
-								onclick="get_refresh('/queue/edit?action=down&song=${encodeURIComponent(e.file)}')"
-								title="{{getString1(106)}}"
-								><i class="icon icon-down-circled ${index + 1 == queue.length && "is-hidden"}"></i>
-							</a>
-						</td>
-					{% endif %}
-					<td style="padding-left: 10px" ><b class="is-hidden-tablet has-text-success">${e.user}: </b> ${e.title}</td>
-					<td style="padding-left: 5px"  class="queue-user is-hidden-mobile has-text-success"><b>${e.user}</b></td>
-					{% if admin %}
-						<td width="20px">
-							<a
-								class="delete-button confirm-delete has-text-danger"
-								title="{{getString1(113)}} ${e.title}"
-								onclick="get_refresh('/queue/edit?action=delete&song=${encodeURIComponent(e.file)}')"
-								><i class="icon icon-trash-empty"></i>
-							</a>
-						</td>
-					{% endif %}
-				</tr>
-			`
-		});
-	} else {
-		html += `<tr><td><p class="has-text-warning">{{getString1(111)}}</p></td></tr>`
-	}
-	return html;
-}
-
-function clearAll() {
-	if(confirm("{{getString1(108)}}")) $.get("/queue/edit?action=clear");
-}
-
-//on page load
-getQueue();
-</script>
 
 <header class="title">
 <h1 class>{{getString1(112)}}</h1>
@@ -101,8 +31,8 @@ getQueue();
 
 <div class="content">
 
-<table class="table is-striped" id="auto-refresh" style="margin-bottom: 1em">
-</table>
+<ol class="queue-list" id="queue-list"></ol>
+{% if admin %}<p class="queue-hint" id="queue-hint" style="display: none">{{getString1(247)}}</p>{% endif %}
 
 <a class="add-random has-text-success" onclick="get_refresh('/queue/addrandom?amount=3')">
   <i class="icon icon-plus-circled"></i>{{getString1(109)}}
@@ -114,3 +44,169 @@ getQueue();
 </a><br />
 {% endif %}
 </div>
+
+<script>
+var queue = [];
+var qdrag = null;          // the song being dragged, if any
+var qpending = null;       // a queue update that arrived mid-drag
+
+function update(data) {
+	if (!data) return;
+	if (qdrag) { qpending = data; return; }     // don't pull the list out from under a finger
+	try { queue = JSON.parse(data); }
+	catch { console.log(`JSON parse error: ${data}`); return; }
+	renderQueue();
+}
+
+function getQueue() {
+	if (!qdrag) $.get('/get_queue').done(update);
+}
+
+function escapeHTML(s) {
+	return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+
+function renderQueue() {
+	var list = document.getElementById('queue-list');
+	$('#queue-hint').toggle(queue.length > 1);
+	if (!queue.length) {
+		list.innerHTML = `<li class="has-text-warning">{{getString1(111)}}</li>`;
+		return;
+	}
+	list.innerHTML = queue.map((e, index) => `
+		<li class="queue-item">
+			<span class="queue-num">${index + 1}</span>
+			<span class="queue-text">
+				<span class="queue-title">${escapeHTML(e.title)}</span>
+				<span class="queue-user has-text-success">${escapeHTML(e.user)}</span>
+			</span>
+			{% if admin %}
+			<a class="queue-delete has-text-danger" data-file="${escapeHTML(e.file)}"
+				title="{{getString1(113)}} ${escapeHTML(e.title)}"><i class="icon icon-trash-empty"></i></a>
+			{% endif %}
+		</li>`).join('');
+}
+
+function clearAll() {
+	if(confirm("{{getString1(108)}}")) $.get("/queue/edit?action=clear");
+}
+
+{% if admin %}
+$('#queue-list').on('click', '.queue-delete', function () {
+	get_refresh('/queue/edit?action=delete&song=' + encodeURIComponent(this.dataset.file));
+});
+
+// Drag to reorder. Written with plain touch/mouse events rather than jQuery UI sortable:
+// with touch-punch, sortable blocks page scrolling wherever it is enabled, which is why
+// dragging used to work only from the little arrow cells.
+(function () {
+	var HOLD_MS = 250;      // phones: hold this long to pick a song up; moving sooner scrolls
+	var SLOP = 8;           // px of movement that turns a press into a scroll (or a mouse drag)
+	var EDGE = 70;          // px from the top/bottom of the screen where dragging scrolls the page
+	var list = document.getElementById('queue-list');
+	var press = null, lastY = 0, scrolling = null;
+
+	list.classList.add('sortable');
+	list.addEventListener('contextmenu', e => { if (press || qdrag) e.preventDefault(); });   // Android long-press menu
+	list.addEventListener('touchstart', begin, {passive: true});
+	list.addEventListener('mousedown', begin);
+
+	function pointer(e) { var t = e.touches ? e.touches[0] : e; return {x: t.clientX, y: t.clientY}; }
+
+	function begin(e) {
+		var item = e.target.closest('.queue-item');
+		if (!item || e.target.closest('.queue-delete') || (e.type == 'mousedown' && e.button !== 0)) return;
+		var p = pointer(e), touch = e.type == 'touchstart';
+		press = {item: item, x: p.x, y: p.y, touch: touch};
+		if (touch) press.timer = setTimeout(() => pickUp(p.y), HOLD_MS);
+		// listen on the document only while pressed (this pane's script runs again each visit)
+		document.addEventListener(touch ? 'touchmove' : 'mousemove', move, {passive: false});
+		document.addEventListener(touch ? 'touchend' : 'mouseup', end);
+		if (touch) document.addEventListener('touchcancel', end);
+	}
+
+	function move(e) {
+		var p = pointer(e);
+		lastY = p.y;
+		if (qdrag) { e.preventDefault(); dragTo(p.y); return; }
+		if (!press || Math.hypot(p.x - press.x, p.y - press.y) <= SLOP) return;
+		if (press.touch) { cancelPress(); return; }            // moved before the hold: a scroll
+		pickUp(press.y); dragTo(p.y);                          // mouse: drag right away
+	}
+
+	function end() {
+		cancelPress();
+		if (qdrag) drop();
+	}
+
+	function cancelPress() {
+		if (!press) return;
+		clearTimeout(press.timer);
+		document.removeEventListener(press.touch ? 'touchmove' : 'mousemove', move, {passive: false});
+		document.removeEventListener(press.touch ? 'touchend' : 'mouseup', end);
+		document.removeEventListener('touchcancel', end);
+		if (!qdrag) press = null;
+	}
+
+	function pickUp(y) {
+		var items = [].slice.call(list.children), from = items.indexOf(press.item);
+		if (from < 0) return;
+		// positions in page coordinates, so scrolling while dragging keeps them valid
+		var tops = items.map(el => el.getBoundingClientRect().top + window.scrollY);
+		var heights = items.map(el => el.getBoundingClientRect().height);
+		var gap = items.length > 1 ? tops[1] - tops[0] - heights[0] : 6;
+		qdrag = {item: press.item, items: items, from: from, to: from, tops: tops, heights: heights,
+		         slot: heights[from] + gap, startY: y + window.scrollY};
+		list.classList.add('sorting');
+		press.item.classList.add('lifted');
+		if (navigator.vibrate) navigator.vibrate(15);
+		lastY = y;
+		autoScroll();
+	}
+
+	function dragTo(y) {
+		var d = qdrag, dy = y + window.scrollY - d.startY;
+		d.item.style.transform = `translateY(${dy}px)`;
+		var centre = d.tops[d.from] + d.heights[d.from] / 2 + dy, to = d.from;
+		d.items.forEach((el, i) => {
+			if (i == d.from) return;
+			var c = d.tops[i] + d.heights[i] / 2, shift = 0;
+			if (i < d.from && centre < c) { shift = d.slot; to--; }        // moves down to make room
+			if (i > d.from && centre > c) { shift = -d.slot; to++; }       // moves up
+			el.style.transform = shift ? `translateY(${shift}px)` : '';
+		});
+		d.to = to;
+	}
+
+	function autoScroll() {
+		if (!qdrag) return;
+		var h = window.innerHeight, step = 0;
+		if (lastY < EDGE) step = -Math.ceil((EDGE - lastY) / 6);
+		else if (lastY > h - EDGE) step = Math.ceil((lastY - (h - EDGE)) / 6);
+		if (step) { window.scrollBy(0, step); dragTo(lastY); }
+		requestAnimationFrame(autoScroll);
+	}
+
+	function drop() {
+		var d = qdrag;
+		qdrag = null;
+		press = null;
+		d.items.forEach(el => { el.style.transform = ''; });
+		d.item.classList.remove('lifted');
+		list.classList.remove('sorting');
+		if (d.to != d.from) {
+			var size = queue.length;
+			queue.splice(d.to, 0, queue.splice(d.from, 1)[0]);    // show the new order right away
+			renderQueue();
+			$.get(`/queue/edit?action=move&from=${d.from}&to=${d.to}&size=${size}`);
+			qpending = null;         // stale now; the server sends the new queue after the move
+		} else if (qpending) {
+			var data = qpending; qpending = null; update(data);
+		}
+	}
+})();
+{% endif %}
+
+//on page load
+getQueue();
+</script>
