@@ -245,3 +245,4 @@ Smooth vocal slider (audio engine)
 Plays the song audio through OpenHomeKaraoke's own audio engine while VLC shows the video: the Vocals slider blends music and vocals live at any position, and key and speed changes are gapless. Switch it off to go back to VLC playing the audio (the slider then snaps to Music, Original and Voice).
 Not available on this computer:
 Press and hold a song, then drag it to change the order.
+Audio delay

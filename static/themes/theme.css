@@ -263,30 +263,11 @@ html.themed {
 .themed .control-box p,
 .themed .control-box span,
 .themed .control-box div { color: inherit; }
-/* #container in the selector: it must outrank ".themed #container h3" above. On phones
-   f_home.html swaps this heading from an h1 to an h3. */
-.themed #container .control-box h1,
-.themed #container .control-box h3 {
-	font-size: 1.2rem !important;
-	font-weight: 700;
-	line-height: 1.2;
-	color: var(--ohk-player-text) !important;
-}
-/* transport buttons + volume: one row that never wraps (the volume sat on its own line) */
-.themed .control-box > p.is-size-3 {
-	display: flex;
-	align-items: center;
-	white-space: nowrap;
-	margin: 0.6rem 0 0.9rem;
-	font-size: 1.9rem !important;
-}
-.themed .control-box > p.is-size-3 > .is-pulled-right {
-	float: none !important;
-	margin-left: auto;
-	display: inline-flex;
-	align-items: center;
-	gap: 2px;
-}
+/* transport (restart / play-pause / skip) at the top of the card, volume below it */
+.themed .control-box .transport a { color: var(--ohk-player-text); }
+.themed .control-box .transport .transport-main { color: var(--ohk-player-accent); }
+.themed details.more-controls { border-top-color: rgba(246, 238, 227, 0.14); }
+.themed details.more-controls > summary { color: var(--ohk-player-muted); opacity: 1; }
 .themed #vol {
 	font-variant-numeric: tabular-nums;
 	font-weight: 600;

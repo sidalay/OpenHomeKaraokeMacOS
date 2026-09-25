@@ -265,8 +265,6 @@ $("#playspeed-info").click(() => {showNotification("{{getString1(200)}}","is-inf
 $("#pytorch-logo").click(() => {showNotification("{{getString1(63)}}","is-info",12000)});
 
 getNowPlaying();
-if(isMobile)
-	$("#label-player-control")[0].outerHTML = '<h3 id="label-player-control">{{getString1(73)}}</h3>';
 
 </script>
 
@@ -280,6 +278,17 @@ hr, h1, h3, h4, p {
 body {
 	line-height: 1;
 }
+.transport { display: flex; justify-content: center; align-items: center; gap: 1.4em; font-size: 2.4rem; line-height: 1; margin: 0.1em 0 0.3em; }
+.transport a { display: inline-flex; padding: 0.1em; }
+.transport .transport-main { font-size: 1.45em; }
+.volume-row { display: flex; justify-content: center; align-items: center; gap: 0.5em; font-size: 1.4rem; margin-bottom: 0.4em; }
+.pytorch-mark { width: 20px; vertical-align: -3px; margin-left: 4px; cursor: pointer; }
+details.more-controls { margin-top: 1.1em; padding-top: 0.7em; border-top: 1px solid rgba(255, 255, 255, 0.15); }
+details.more-controls > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; font-weight: 600; opacity: 0.75; user-select: none; }
+details.more-controls > summary::-webkit-details-marker { display: none; }
+details.more-controls > summary::after { content: "\25B8"; transition: transform 0.2s; }
+details.more-controls[open] > summary::after { transform: rotate(90deg); }
+details.more-controls[open] > summary { margin-bottom: 0.6em; }
 .vocal-box { margin: 0.6em 0 0.8em; }
 .vocal-box.is-disabled { opacity: 0.35; }
 .vocal-track { position: relative; }
@@ -314,45 +323,24 @@ body {
 <hr/>
 
 <div class="has-background-black-bis box control-box" style="max-width: 500px">
-	<div class="is-flex" style="justify-content: space-between">
-		<h1 id="label-player-control">{{getString1(64)}}</h1>
-		<img id="pytorch-logo" width="40" src="/static/images/pytorch-logo.png" />
+	<div class="transport">
+		<a title="{{getString1(79)}}" id="restart"><i class="icon icon-to-start"></i></a>
+		<a title="{{getString1(80)}}" class="transport-main"><i id="pause-resume" class="icon icon-pause"></i></a>
+		<a title="{{getString1(81)}}" id="skip"><i class="icon icon-to-end"></i></a>
+	</div>
+	<div class="volume-row">
+		<a title="{{getString1(82)}}" id="vol-down"><i class="icon icon-volume-down"></i></a>
+		<a title="{{getString1(83)}}" id="vol" style="cursor: pointer" contenteditable="true" onfocus="volume_changing=true">{{ volume }}</a>
+		<a title="{{getString1(84)}}" id="vol-up"><i class="icon icon-volume-up"></i></a>
 	</div>
 
 	<div id="vocal-box" class="vocal-box">
 		<div class="is-flex" style="justify-content: space-between; align-items: baseline">
-			<h4>{{getString1(242)}}</h4>
+			<h4>{{getString1(242)}} <img id="pytorch-logo" class="pytorch-mark" src="/static/images/pytorch-logo.png" /></h4>
 			<h4 id="vocal-val"></h4>
 		</div>
 		<div class="vocal-track"><input type="range" id="vocal-blend" min="-100" max="100" step="1" value="0"></div>
 		<div class="vocal-ends"><span>{{getString1(65)}}</span><span>{{getString1(243)}}</span><span>{{getString1(67)}}</span></div>
-	</div>
-
-	<p class="is-size-3">
-		<a title="{{getString1(79)}}" id="restart"><i class="icon icon-to-start"></i> </a>&nbsp;&nbsp;
-		<a title="{{getString1(80)}}"><i id="pause-resume" class="icon icon-pause"></i> </a>&nbsp;&nbsp;
-		<a title="{{getString1(81)}}" id="skip"><i class="icon icon-to-end"></i> </a>&nbsp;&nbsp; &nbsp;&nbsp;&nbsp;&nbsp;
-		<span class="is-pulled-right">
-		<a title="{{getString1(82)}}" id="vol-down"><i class="icon icon-volume-down"></i> </a>
-		<a title="{{getString1(83)}}" id="vol" style="cursor: pointer" contenteditable="true" onfocus="volume_changing=true"> {{ volume }} </a>&nbsp;
-		<a title="{{getString1(84)}}" id="vol-up"><i class="icon icon-volume-up"></i> </a>
-		</span>
-	</p>
-
-	<div id="subdelay-box">
-		<div class="is-flex" style="justify-content: space-between">
-			<h4><span title="{{getString1(198)}}" id="subtitle-sel" style="cursor:pointer">{{getString1(78)}}</span><a id="subdelay-info"> <i class="icon icon-info-circled-1" title="Info"></i></a>:</h4>
-			<h4 title="{{getString1(85)}}" id="subdelay-dec" class="tabs hand" style="margin:0; color:red; font-weight: bold; font-size:x-large;" >&#x2296;</h4>
-			<h4 title="{{getString1(86)}}" id="subdelay-val" class="tabs hand" style="padding-top:2px; margin:0; contenteditable="true" onfocus="subdelay_typing=true">0</h4>
-			<h4 title="{{getString1(87)}}" id="subdelay-inc" class="tabs hand" style="margin:0; color:green; font-weight:bold;font-size:x-large;" >&#x2295;</h4>
-		</div>
-	</div>
-
-	<div class="is-flex" style="justify-content: space-between">
-		<h4>{{getString1(77)}}<a id="audiodelay-info"> <i class="icon icon-info-circled-1" title="Info"></i></a>:</h4>
-		<h4 title="{{getString1(88)}}" id="delay-dec" class="tabs hand" style="margin:0; color:red; font-weight: bold; font-size:x-large;" >&#x2296;</h4>
-		<h4 title="{{getString1(89)}}" id="delay-val" class="tabs hand" style="padding-top:2px; margin:0;" contenteditable="true" onfocus="audiodelay_typing=true">0</h4>
-		<h4 title="{{getString1(90)}}" id="delay-inc" class="tabs hand" style="margin:0; color:green; font-weight:bold;font-size:x-large;" >&#x2295;</h4>
 	</div>
 
 	<div class="is-flex" style="justify-content: space-between">
@@ -441,5 +429,25 @@ body {
 		</div>
 	</div>
 	{% endif %}
+
+	<!-- rarely needed: audio (and subtitle) delay, collapsed -->
+	<details class="more-controls">
+		<summary>{{getString1(248)}}</summary>
+	<div id="subdelay-box">
+		<div class="is-flex" style="justify-content: space-between">
+			<h4><span title="{{getString1(198)}}" id="subtitle-sel" style="cursor:pointer">{{getString1(78)}}</span><a id="subdelay-info"> <i class="icon icon-info-circled-1" title="Info"></i></a>:</h4>
+			<h4 title="{{getString1(85)}}" id="subdelay-dec" class="tabs hand" style="margin:0; color:red; font-weight: bold; font-size:x-large;" >&#x2296;</h4>
+			<h4 title="{{getString1(86)}}" id="subdelay-val" class="tabs hand" style="padding-top:2px; margin:0; contenteditable="true" onfocus="subdelay_typing=true">0</h4>
+			<h4 title="{{getString1(87)}}" id="subdelay-inc" class="tabs hand" style="margin:0; color:green; font-weight:bold;font-size:x-large;" >&#x2295;</h4>
+		</div>
+	</div>
+
+	<div class="is-flex" style="justify-content: space-between">
+		<h4>{{getString1(77)}}<a id="audiodelay-info"> <i class="icon icon-info-circled-1" title="Info"></i></a>:</h4>
+		<h4 title="{{getString1(88)}}" id="delay-dec" class="tabs hand" style="margin:0; color:red; font-weight: bold; font-size:x-large;" >&#x2296;</h4>
+		<h4 title="{{getString1(89)}}" id="delay-val" class="tabs hand" style="padding-top:2px; margin:0;" contenteditable="true" onfocus="audiodelay_typing=true">0</h4>
+		<h4 title="{{getString1(90)}}" id="delay-inc" class="tabs hand" style="margin:0; color:green; font-weight:bold;font-size:x-large;" >&#x2295;</h4>
+	</div>
+	</details>
 </div>
 </div>
