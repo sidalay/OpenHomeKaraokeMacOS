@@ -48,7 +48,15 @@ for _ in $(seq 1 20); do
 done
 
 echo "exitkaraoke: still running after 10s, force killing..." >&2
-kill -KILL $PIDS 2>/dev/null || true
-# VLC is normally killed by the app on shutdown; after a force kill it may be orphaned.
+# Kill the app's child processes too (VLC, the vocal splitter and its multiprocessing
+# helper). The app normally stops them itself; killed with it, they would be left
+# running on their own. Collect them first: once the app dies they are re-parented.
+descendants() {
+	for p in "$@"; do
+		for c in $(pgrep -P "$p" || true); do echo "$c"; descendants "$c"; done
+	done
+}
+KIDS="$(descendants $PIDS)"
+kill -KILL $PIDS $KIDS 2>/dev/null || true
 pkill -f "VLC.*--http-port" 2>/dev/null || true
 echo "exitkaraoke: killed."
