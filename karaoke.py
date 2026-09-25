@@ -1016,9 +1016,10 @@ class Karaoke:
 	def seek(self, seek_sec):
 		if self.is_file_playing():
 			if self.use_vlc:
+				sent_at = time.perf_counter()
 				self.vlcclient.seek(seek_sec)
 				if self.av_sync:
-					self.av_sync.seek(float(seek_sec))
+					self.av_sync.seek(float(seek_sec), sent_at)
 			else:
 				logging.warning("OMXplayer cannot seek track!")
 			return True
@@ -1108,10 +1109,14 @@ class Karaoke:
 					self.vlcclient.pause()
 					self.is_paused = True
 				else:
+					sent_at = time.perf_counter()
 					self.vlcclient.play()
 					self.is_paused = False
 				if self.engine:
-					self.engine.pause() if self.is_paused else self.engine.play()
+					if self.is_paused:
+						self.engine.pause()
+					elif not (self.av_sync and self.av_sync.resumed(sent_at)):
+						self.engine.play()
 			else:
 				if self.omxclient.is_playing():
 					self.omxclient.pause()
@@ -1300,10 +1305,10 @@ class Karaoke:
 	def restart(self):
 		if self.is_file_playing():
 			if self.use_vlc:
+				sent_at = time.perf_counter()
 				self.vlcclient.restart()
 				if self.av_sync:
-					self.av_sync.seek(0.0)
-					self.engine.play()
+					self.av_sync.seek(0.0, sent_at)
 			else:
 				self.omxclient.restart()
 			self.is_paused = False

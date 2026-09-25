@@ -372,11 +372,13 @@ class ClockModel:
 		self.slope = 1.0
 		self.state = None
 		self.resets = 0
+		self.moving = False                         # VLC's clock is really advancing
 
 	def reset(self):
 		self.samples.clear()
 		self.fresh.clear()
 		self.slope = self.rate
+		self.moving = False
 		self.resets += 1
 
 	def add(self, t0, vlc_time, state, rate):
@@ -388,6 +390,16 @@ class ClockModel:
 			if ahead > 0.15 or ahead < -1.0:
 				self.reset()
 		self.state, self.rate = state, rate
+		# VLC says "playing" while it is still buffering (at a song's start, after a seek) and
+		# its clock then sits still for a while; a seek also makes it jump. It is moving once
+		# it takes a small step forward: start the model afresh from that reading, dropping
+		# the stuck ones, which would otherwise make it look ahead of where it is.
+		if not self.moving and state == 'playing' and self.samples:
+			step = vlc_time - self.samples[-1][1]
+			if 0 < step <= 0.6 * max(rate, 1.0):
+				self.moving = True
+				self.samples.clear()
+				self.fresh.clear()
 		if not self.samples:
 			self.slope = rate
 		if self.samples and vlc_time != self.samples[-1][1]:
@@ -400,6 +412,13 @@ class ClockModel:
 		self.samples.append((t0, vlc_time))
 		while self.samples and self.samples[0][0] < t0 - self.WINDOW:
 			self.samples.popleft()
+
+	def time_at(self, value):
+		"""Wall time at which VLC's clock was (or will be) at `value`, while it is moving."""
+		if not self.samples or not self.moving:
+			return None
+		offset = max(v - self.slope * t for t, v in self.samples)
+		return (value - offset) / self.slope
 
 	def span(self):
 		return self.samples[-1][0] - self.samples[0][0] if self.samples else 0
@@ -419,10 +438,19 @@ class AVSync(threading.Thread):
 	POLL = 0.04
 	SEEK_THRESHOLD = 0.15    # s: larger differences jump, smaller ones are trimmed away
 	SETTLE_TIME = 3.0        # s after a resume / seek / speed change ...
-	SETTLE_THRESHOLD = 0.04  # ... during which differences over 40 ms jump right away
+	SETTLE_THRESHOLD = 0.08  # ... during which differences over 80 ms jump right away
+	TRIM_ON, TRIM_OFF = 0.04, 0.015  # s: trim the tempo beyond 40 ms (about where A/V offsets get noticeable), stop within 15 ms
 	GAIN = 0.25              # tempo trim per second of drift (0.1 s -> 2.5%)
 	INTEGRAL = 0.05          # learns a steady speed difference, so no offset remains
 	MAX_NUDGE = 0.02
+	# When VLC's clock (re)starts, how long after the moment we know of does it really move?
+	#   'start':   after VLC first says "playing" (it is still buffering): 0.22-0.28 s measured
+	#   'restart': after a seek to 0 is sent: VLC resumes from the first frame almost at once
+	# Learned from each event, separately, and shared by the next songs. (A seek elsewhere
+	# is not predicted: VLC decodes on from the previous keyframe first, which takes a
+	# varying time, so the audio waits until VLC's clock is seen moving instead.)
+	delays = {'start': 0.25, 'restart': 0.03}
+	LEARN_AFTER = 1.5        # s of real clock readings before a delay is measured
 
 	def __init__(self, engine, clock):
 		super().__init__(daemon = True, name = 'AVSync')
@@ -438,18 +466,56 @@ class AVSync(threading.Thread):
 		self.started = False                        # engine placed on VLC's timeline yet?
 		self.running = True
 		self.failures = 0
+		self.born = time.perf_counter()
+		self.trimming = False
+		self.first_playing_seen = False
+		self.plan = None                            # the audio's planned (re)start, see _plan()
+		self.plan_timer = None
+		self.plan_pending = False
+		self.moving_since = None
+		self.paused_seek = None                     # position of a seek made while paused
+		self.no_settle = False                      # a speed change: trim, don't jump
+		self.seen_underflows = 0
 
 	def stop(self):
 		self.running = False
+		if self.plan_timer:
+			self.plan_timer.cancel()
 
-	def seek(self, seconds):
-		"""Call when telling VLC to seek: the engine jumps too, and VLC's old timeline is
-		void (whatever VLC lands on, e.g. a keyframe, is followed from there)."""
-		self.engine.seek(seconds)
+	def seek(self, seconds, sent_at = None):
+		"""Call when telling VLC to seek, with `sent_at` the perf_counter() from just before
+		the request went to VLC. A restart (seek to 0) is predicted like a song start, so
+		its first moments are not skipped. Anywhere else the audio waits until VLC's clock
+		is seen moving at its new position, then comes in exactly there (a brief pause
+		after a seek, instead of a correcting jump a second later)."""
+		sent_at = time.perf_counter() if sent_at is None else sent_at
+		if self.plan_timer:
+			self.plan_timer.cancel()
+		self.plan, self.plan_pending = None, False
+		paused = self.model.state == 'paused'
+		self.engine.pause()
+		self.engine.seek(seconds)                   # so a resume from pause starts here too
 		self.model.reset()
+		self.moving_since = None
+		self.started = False
+		self.paused_seek = float(seconds) if paused else None
+		if seconds <= 0 and not paused:
+			self._plan('restart', sent_at, 0.0)
+
+	def resumed(self, sent_at):
+		"""Call when telling VLC to resume. After a seek made while paused, VLC needs a
+		moment again (like after any seek): returns True, and the audio comes in once
+		VLC's clock moves. Otherwise returns False, and the caller resumes the engine."""
+		if self.paused_seek is None:
+			return False
+		self.paused_seek = None
+		self.model.reset()
+		self.moving_since = None
+		return True
 
 	def speed_changed(self):
 		self.integral = 0.0
+		self.no_settle = True                       # the model resets, but nothing needs to jump
 
 	def run(self):
 		next_control = 0.0
@@ -467,7 +533,17 @@ class AVSync(threading.Thread):
 				continue
 			self.failures = 0
 			t0, d = reading
+			was_moving = self.model.moving
 			self.model.add(t0, d['time_us'] / 1e6, d['state'], float(d['rate']))
+			if not self.first_playing_seen and d['state'] == 'playing':
+				self.first_playing_seen = True
+				self._plan('start', t0, d['time_us'] / 1e6)
+			if self.model.moving and not was_moving:
+				self.moving_since = t0
+			p = self.plan
+			if (p and not p['learned'] and p['started'] and self.moving_since
+			        and t0 - self.moving_since >= self.LEARN_AFTER):
+				self._learn()
 			now = time.perf_counter()
 			if now >= next_control:
 				try:
@@ -477,11 +553,69 @@ class AVSync(threading.Thread):
 				next_control = now + 0.1
 			time.sleep(self.POLL)
 
+	def _plan(self, kind, t_ref, position, resuming = False):
+		"""VLC's clock is about to (re)start at `position`: at a song start ('start',
+		t_ref = when VLC first said "playing") or after a seek ('seek', t_ref = when the
+		request was sent). Start the audio so that it is heard just as VLC's clock gets
+		there: after the learned delay, minus the audio output's own latency. Nothing is
+		skipped and nothing has to jump later."""
+		if self.plan_timer:
+			self.plan_timer.cancel()
+		plan = self.plan = {'kind': kind, 't_ref': t_ref, 'position': position, 'learned': False, 'started': False}
+		self.plan_pending = True
+		when = t_ref + AVSync.delays[kind] - self.engine.output_latency
+
+		def go():
+			if not self.running or self.plan is not plan:
+				return
+			self.plan_pending = False
+			# still paused: the engine resumes with VLC, from `position`. (Not checked when
+			# VLC was just told to resume: the latest reading may lag and still say paused.)
+			if self.model.state == 'paused' and not resuming:
+				return
+			late = max(0.0, time.perf_counter() - when) * max(self.model.rate, 0.1)
+			self.engine.seek(position + late)
+			self.engine.nudge = 1.0
+			self.engine.play()
+			self.started = plan['started'] = True
+			self.last_seek = time.perf_counter()
+			self._log(self.last_seek, f"audio {'started' if kind == 'start' else 'back'} at {position + late:.3f}s, "
+			                          f"{AVSync.delays[kind] * 1000:.0f} ms after "
+			                          f"{'VLC said playing' if kind == 'start' else 'the seek was sent'}")
+		self.plan_timer = threading.Timer(max(0.0, when - time.perf_counter()), go)
+		self.plan_timer.daemon = True
+		self.plan_timer.start()
+
+	def _learn(self):
+		"""How long did VLC's clock really take this time? Measured with the same estimate
+		the sync uses (the freshest reading over a window), not the first reading, which
+		can be stale by tens of ms."""
+		p = self.plan
+		p['learned'] = True
+		reached = self.model.time_at(p['position'])
+		if reached is None:
+			return
+		actual = reached - p['t_ref']
+		if 0.0 <= actual < 1.0:                     # otherwise VLC landed elsewhere (a keyframe)
+			old = AVSync.delays[p['kind']]
+			AVSync.delays[p['kind']] = float(np.clip(0.6 * old + 0.4 * actual, 0.0, 1.0))
+			self._log(time.perf_counter(), f"VLC's clock moved {actual * 1000:.0f} ms after "
+			          f"{'saying playing' if p['kind'] == 'start' else 'the seek'}; now expecting "
+			          f"{AVSync.delays[p['kind']] * 1000:.0f} ms")
+
+	def _log(self, now, msg):
+		logging.info(f"AVSync +{now - self.born:5.2f}s: {msg}")
+
 	def _control(self, now, dt = 0.1):
 		e = self.engine
+		if e.underflows != self.seen_underflows:
+			self._log(now, f"audio dropouts: {e.underflows - self.seen_underflows} (total {e.underflows})")
+			self.seen_underflows = e.underflows
 		if self.model.resets != self.model_resets:  # VLC resumed, seeked or changed speed
 			self.model_resets = self.model.resets
-			self.settle_until = now + 0.6 + self.SETTLE_TIME
+			if not self.no_settle:
+				self.settle_until = now + 0.6 + self.SETTLE_TIME
+			self.no_settle = False
 		if self.model.state != 'playing':
 			if e.playing:
 				e.pause()
@@ -492,16 +626,23 @@ class AVSync(threading.Thread):
 			return
 		target = estimate - self.audio_delay
 		if not self.started:
-			# song start: land where VLC will be when the audio is heard
+			# After a seek (or a song start the plan missed): wait until VLC's clock is
+			# really moving at its new position, then land where VLC will be when the audio
+			# is heard. A restart is planned instead (see seek()), unless it is superseded.
+			if not self.model.moving or self.plan_pending:
+				return
 			e.seek(max(0.0, target + e.output_latency + 0.02))
 			e.nudge = 1.0
 			e.play()
 			self.started = True
 			self.last_seek = now
+			self._log(now, f"audio back at {target:.3f}s once VLC's clock moved")
 			return
-		if not e.playing:
+		if not e.playing and not self.plan_pending:
 			e.play()                                # VLC resumed: continue from where we paused
-		if self.model.span() < 0.6:
+		# Don't correct from the readings VLC gives while still buffering (its clock is not
+		# moving yet, so they would make it look ahead): wait for a real reading.
+		if not self.model.moving or self.model.span() < 0.6:
 			return
 		drift = target - e.audible_position(now)
 		self.drift = drift
@@ -511,6 +652,21 @@ class AVSync(threading.Thread):
 				e.seek(max(0.0, target + e.output_latency + 0.02))
 				e.nudge = 1.0
 				self.last_seek = now
+				self._log(now, f"jumped {drift * 1000:+.0f} ms to catch up with VLC")
 			return
-		self.integral = float(np.clip(self.integral + drift * dt, -0.2, 0.2))
-		e.nudge = 1.0 + float(np.clip(self.GAIN * drift + self.INTEGRAL * self.integral, -self.MAX_NUDGE, self.MAX_NUDGE))
+		# Trim the tempo only when clearly off (dead zone with hysteresis): the clock
+		# estimate itself wobbles by +-10-30 ms, and chasing that kept the engine off its
+		# exact path (speed 1, no resampling) most of the time. The integral part learns
+		# a steady speed difference (e.g. VLC's x1.2 is really ~x1.2033) and stays on.
+		if self.trimming and abs(drift) < self.TRIM_OFF:
+			self.trimming = False
+			self._log(now, f"back in sync (drift {drift * 1000:+.0f} ms), tempo exact again")
+		elif not self.trimming and abs(drift) > self.TRIM_ON:
+			self.trimming = True
+			self._log(now, f"trimming the tempo: audio is {abs(drift) * 1000:.0f} ms "
+			               f"{'behind' if drift > 0 else 'ahead of'} the video")
+		if self.trimming:
+			self.integral = float(np.clip(self.integral + drift * dt, -0.2, 0.2))
+		trim = float(np.clip(self.INTEGRAL * self.integral + (self.GAIN * drift if self.trimming else 0.0),
+		                     -self.MAX_NUDGE, self.MAX_NUDGE))
+		e.nudge = 1.0 if abs(trim) < 0.0005 else 1.0 + trim
