@@ -7,6 +7,11 @@
   {% endif %}
 </h1>
 <style>
+  tr.song-row { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+  tr.song-row td { padding-top: 11px; padding-bottom: 11px; vertical-align: middle; transition: background-color .25s; }
+  tr.song-row .song-num { width: 2.2em; padding-left: 6px; padding-right: 4px; opacity: .6; }
+  tr.song-row:active td, tr.song-row.just-tapped td { background-color: rgba(127, 127, 127, .28); }
+  tr.song-row.added .song-title::after { content: "  \2713"; font-weight: 700; color: #48c774; }
   #alpha-bar {
     padding: 5px 10px;
     border-radius: 4px;
@@ -58,20 +63,19 @@
 {{ pagination.info }}
 <table>
   {% for song in songs %}
-  <tr value='{{ song }}'>
-    <td width="20px" style="padding: 5px 0px">{{loop.index + pagination.skip}}</td>
-    <td id={{filename_from_path(song)[0].lower()}} width="20px" style="padding: 5px 0px">
-      <a class='add-song-link has-text-weight-bold has-text-success' title="{{getString1(97)%filename_from_path(song)}}"
-        href="{{url_for('enqueue')}}?song={{url_escape(song.encode('utf-8'))}}&user="><i class="icon icon-list-add"></i> </a>
-    </td>
-    <td>{{filename_from_path(song)}}</td>
+  {# tap a song to add it to the queue #}
+  <tr class="song-row" value='{{ song }}' data-song="{{ song }}" title="{{getString1(97)%filename_from_path(song)}}"
+      data-href="{{url_for('enqueue')}}?song={{url_escape(song.encode('utf-8'))}}&user=">
+    <td class="song-num">{{loop.index + pagination.skip}}</td>
+    <td class="song-title" id={{filename_from_path(song)[0].lower()}}>{{filename_from_path(song)}}</td>
     {% if admin %}
-      <td width="20px">
+      <td class="edit-cell" width="20px">
         <a class='edit-button' onclick="onEdit('/f_edit?song={{url_escape(song.encode())}}')"
           title="{{getString1(104)}}"><i class="icon icon-edit-1"></i> </a>
       </td>
     {% endif %}
-    {% endfor %}
+  </tr>
+  {% endfor %}
 </table>
 {{ pagination.links }}
 </div>
@@ -89,23 +93,30 @@ if ($(window).width() <= 500) {
   });
 }
 
-$('a.add-song-link').click(function(e) {
-  e.preventDefault();
-  var user = Cookies.get("user") 
+// Tap a song to add it. (A drag that scrolls the list is not a tap, so scrolling never adds.)
+$('tr.song-row').click(function(e) {
+  if ($(e.target).closest('.edit-cell').length) return;         // the pencil edits instead
+  var user = Cookies.get("user");
   if (!user) {
     let name = window.prompt("{{getString1(92)}}");
-    if (name) {
-      Cookies.set("user", name, { expires: 3650 })
-      user = Cookies.get("user") 
-    }
+    if (!name) return;
+    Cookies.set("user", name, { expires: 3650 });
+    user = name;
   }
-  $.get(this.href + encodeURIComponent(user), function (data) {
+  var row = $(this).addClass('just-tapped');
+  $.get(row.data('href') + encodeURIComponent(user), function (data) {
     var obj = JSON.parse(data);
-    if (obj.success)
-      showNotification("{{getString1(93)}}" + obj.song, "is-success")
-    else
-      showNotification("{{getString1(94)}}" + obj.song, "is-danger")
-  })
+    if (obj.success) {
+      row.addClass('added');
+      notifyWithControl("{{getString1(93)}}" + obj.song, () => {
+        ws.send('pop_from_queue ' + row.data('song'));
+        showNotification("{{getString1(14)}} " + obj.song, "is-info");
+      }, 5000, "is-success");
+    } else {
+      showNotification("{{getString1(94)}}" + obj.song, "is-danger");
+    }
+    setTimeout(() => row.removeClass('just-tapped added'), 1500);
+  }).fail(() => row.removeClass('just-tapped'));
 })
 
 function onEdit(url){

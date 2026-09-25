@@ -19,7 +19,7 @@
 	<link rel="stylesheet" href="/static/custom.css">
 	<link rel="icon" type="image/png" href="/static/images/microphone.png">
 	<link rel="stylesheet" href="/static/fontello/css/fontello.css">
-	<link rel="stylesheet" href="/static/themes/theme.css?v=6">
+	<link rel="stylesheet" href="/static/themes/theme.css?v=7">
 </head>
 
 <style>
@@ -310,23 +310,27 @@ function disableMic() {
 	g_stream.getAudioTracks().forEach(t => t.stop());
 	g_stream = null;
 }
-function showNotification(message, categoryClass, timeout=3000) {
-	$("#notification").addClass(categoryClass)
-	$("#notification div").text(message)
-	$("#notificationControls").hide()
-	$("#notification").fadeIn()
-	setTimeout(function () {$("#notification").fadeOut()}, timeout)
-	setTimeout(function () {$("#notification").removeClass(categoryClass)}, timeout + 750)
+// One notification at a time: a new one replaces the current one, its own timer decides
+// when it fades, and the optional control (e.g. UNDO) acts for this notification only.
+var notifyTimer = null;
+function notify(message, categoryClass, timeout, action) {
+	var box = $("#notification");
+	clearTimeout(notifyTimer);
+	box.stop(true, true).removeClass('is-success is-danger is-warning is-info').addClass(categoryClass);
+	$("#notification div").text(message);
+	var control = $("#notificationControls").off('click');
+	if (action) control.show().on('click', () => { box.fadeOut(); action(); });
+	else control.hide();
+	box.fadeIn();
+	notifyTimer = setTimeout(() => box.fadeOut(), timeout);
 }
 
-function notifyWithControl(message, action, timeout=3000){
-	$("#notification").addClass('is-info')
-	$("#notification div").text(message)
-	$("#notificationControls").show()
-	$("#notificationControls").click(action)
-	$("#notification").fadeIn()
-	setTimeout(function () {$("#notification").fadeOut()}, timeout)
-	setTimeout(function () {$("#notification").removeClass('is-info')}, timeout + 750)
+function showNotification(message, categoryClass, timeout=3000) {
+	notify(message, categoryClass, timeout, null);
+}
+
+function notifyWithControl(message, action, timeout=3000, categoryClass='is-info') {
+	notify(message, categoryClass, timeout, action);
 }
 
 function setLanguage(lang, reload){
