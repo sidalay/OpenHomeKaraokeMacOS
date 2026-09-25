@@ -66,3 +66,15 @@
   background-color: transparent;
   font-size: 100%
 }
+
+/* Swipe a row left to reveal a delete button (static/swipe.js). The track is one button
+   wider than the row, with the button just past the row's right edge. */
+.swipe-row { overflow: hidden; position: relative; }
+.swipe-track { display: flex; width: calc(100% + 76px); touch-action: pan-y; }
+.swipe-content { flex: 1 1 auto; min-width: 0; }
+.swipe-delete {
+  flex: 0 0 76px; display: flex; align-items: center; justify-content: center;
+  border: 0; margin: 0; padding: 0; cursor: pointer;
+  background: #e0453a; color: #fff; font-size: 1.5rem; font-weight: 700; line-height: 1;
+}
+.swipe-delete:active { filter: brightness(0.9); }

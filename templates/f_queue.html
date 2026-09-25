@@ -5,17 +5,16 @@
   .content ol.queue-list { list-style: none; margin: 0 0 0.6em; padding: 0; }
   .content .queue-list li + li { margin-top: 0; }
   .queue-item {
-    display: flex; align-items: center; gap: 0.75em;
-    padding: 0.7em 0.8em; margin-bottom: 6px; border-radius: 12px;
+    margin-bottom: 6px; border-radius: 12px;
     background: rgba(127, 127, 127, 0.12);
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
+  .queue-main { display: flex; align-items: center; gap: 0.75em; padding: 0.7em 0.8em; }
   .queue-num { flex: none; width: 1.6em; text-align: right; opacity: 0.55; font-variant-numeric: tabular-nums; }
   .queue-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .queue-title { overflow-wrap: anywhere; }
   .queue-user { font-size: 0.8em; font-weight: 600; }
-  .queue-delete { flex: none; padding: 0.3em 0.2em; }
   .queue-list.sortable .queue-item { cursor: grab; }
   .queue-list.sorting .queue-item { transition: transform 0.18s ease; }
   .queue-list.sorting .queue-item.lifted {
@@ -74,16 +73,17 @@ function renderQueue() {
 		return;
 	}
 	list.innerHTML = queue.map((e, index) => `
-		<li class="queue-item">
-			<span class="queue-num">${index + 1}</span>
-			<span class="queue-text">
-				<span class="queue-title">${escapeHTML(e.title)}</span>
-				<span class="queue-user has-text-success">${escapeHTML(e.user)}</span>
-			</span>
-			{% if admin %}
-			<a class="queue-delete has-text-danger" data-file="${escapeHTML(e.file)}"
-				title="{{getString1(113)}} ${escapeHTML(e.title)}"><i class="icon icon-trash-empty"></i></a>
-			{% endif %}
+		<li class="queue-item swipe-row" data-file="${escapeHTML(e.file)}" data-title="${escapeHTML(e.title)}">
+			<div class="swipe-track">
+				<div class="swipe-content queue-main">
+					<span class="queue-num">${index + 1}</span>
+					<span class="queue-text">
+						<span class="queue-title">${escapeHTML(e.title)}</span>
+						<span class="queue-user has-text-success">${escapeHTML(e.user)}</span>
+					</span>
+				</div>
+				{% if admin %}<button class="swipe-delete" title="{{getString1(113)}} ${escapeHTML(e.title)}" aria-label="{{getString1(250)}}">&#x2715;</button>{% endif %}
+			</div>
 		</li>`).join('');
 }
 
@@ -92,8 +92,15 @@ function clearAll() {
 }
 
 {% if admin %}
-$('#queue-list').on('click', '.queue-delete', function () {
-	get_refresh('/queue/edit?action=delete&song=' + encodeURIComponent(this.dataset.file));
+// Swipe a song left for the red X, which removes it from the queue.
+OHKSwipe.attach(document.getElementById('queue-list'), {
+	busy: () => qdrag !== null,                       // not while a song is being reordered
+	onDelete: function (row) {
+		OHKSwipe.close(row);
+		ws.send('pop_from_queue ' + row.dataset.file);   // (the /queue/edit route posts its own message, with the full path)
+		$(row).slideUp(180);                           // the server then sends the new queue
+		showNotification({{ getString1(14)|tojson }} + " " + row.dataset.title, "is-info");
+	}
 });
 
 // Drag to reorder. Written with plain touch/mouse events rather than jQuery UI sortable:
@@ -115,7 +122,7 @@ $('#queue-list').on('click', '.queue-delete', function () {
 
 	function begin(e) {
 		var item = e.target.closest('.queue-item');
-		if (!item || e.target.closest('.queue-delete') || (e.type == 'mousedown' && e.button !== 0)) return;
+		if (!item || e.target.closest('.swipe-delete') || (e.type == 'mousedown' && e.button !== 0)) return;
 		var p = pointer(e), touch = e.type == 'touchstart';
 		press = {item: item, x: p.x, y: p.y, touch: touch};
 		if (touch) press.timer = setTimeout(() => pickUp(p.y), HOLD_MS);
@@ -130,8 +137,9 @@ $('#queue-list').on('click', '.queue-delete', function () {
 		lastY = p.y;
 		if (qdrag) { e.preventDefault(); dragTo(p.y); return; }
 		if (!press || Math.hypot(p.x - press.x, p.y - press.y) <= SLOP) return;
-		if (press.touch) { cancelPress(); return; }            // moved before the hold: a scroll
-		pickUp(press.y); dragTo(p.y);                          // mouse: drag right away
+		if (press.touch) { cancelPress(); return; }            // moved before the hold: a scroll or a swipe
+		if (Math.abs(p.x - press.x) > Math.abs(p.y - press.y)) { cancelPress(); return; }   // mouse, sideways: a swipe
+		pickUp(press.y); dragTo(p.y);                          // mouse, up or down: reorder
 	}
 
 	function end() {
@@ -155,6 +163,7 @@ $('#queue-list').on('click', '.queue-delete', function () {
 		var tops = items.map(el => el.getBoundingClientRect().top + window.scrollY);
 		var heights = items.map(el => el.getBoundingClientRect().height);
 		var gap = items.length > 1 ? tops[1] - tops[0] - heights[0] : 6;
+		OHKSwipe.close();                                      // a song swiped open shuts first
 		qdrag = {item: press.item, items: items, from: from, to: from, tops: tops, heights: heights,
 		         slot: heights[from] + gap, startY: y + window.scrollY};
 		list.classList.add('sorting');

@@ -7,11 +7,17 @@
   {% endif %}
 </h1>
 <style>
-  tr.song-row { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
-  tr.song-row td { padding-top: 11px; padding-bottom: 11px; vertical-align: middle; transition: background-color .25s; }
-  tr.song-row .song-num { width: 2.2em; padding-left: 6px; padding-right: 4px; opacity: .6; }
-  tr.song-row:active td, tr.song-row.just-tapped td { background-color: rgba(127, 127, 127, .28); }
-  tr.song-row.added .song-title::after { content: "  \2713"; font-weight: 700; color: #48c774; }
+  .content ol.song-list { list-style: none; margin: 0; padding: 0; }
+  .content .song-list li + li { margin-top: 0; }
+  .song-row { cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none;
+              border-bottom: 1px solid rgba(127, 127, 127, .25); transition: background-color .25s; }
+  .song-row:nth-child(even) { background-color: rgba(127, 127, 127, .10); }
+  .song-main { display: flex; align-items: center; gap: .4em; padding: 11px 6px; }
+  .song-num { flex: none; width: 2.2em; opacity: .6; }
+  .song-title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .edit-cell { flex: none; padding: 0 6px; }
+  .song-row:active, .song-row.just-tapped { background-color: rgba(127, 127, 127, .28); }
+  .song-row.added .song-title::after { content: "  \2713"; font-weight: 700; color: #48c774; }
   #alpha-bar {
     padding: 5px 10px;
     border-radius: 4px;
@@ -61,22 +67,26 @@
 
 {{ pagination.links }}
 {{ pagination.info }}
-<table>
+<ol class="song-list" id="song-list">
   {% for song in songs %}
-  {# tap a song to add it to the queue #}
-  <tr class="song-row" value='{{ song }}' data-song="{{ song }}" title="{{getString1(97)%filename_from_path(song)}}"
+  {# tap a song to add it to the queue; admins can swipe it left to delete it #}
+  <li class="song-row swipe-row" data-song="{{ song }}" data-name="{{ filename_from_path(song) }}"
+      title="{{getString1(97)%filename_from_path(song)}}"
       data-href="{{url_for('enqueue')}}?song={{url_escape(song.encode('utf-8'))}}&user=">
-    <td class="song-num">{{loop.index + pagination.skip}}</td>
-    <td class="song-title" id={{filename_from_path(song)[0].lower()}}>{{filename_from_path(song)}}</td>
-    {% if admin %}
-      <td class="edit-cell" width="20px">
-        <a class='edit-button' onclick="onEdit('/f_edit?song={{url_escape(song.encode())}}')"
-          title="{{getString1(104)}}"><i class="icon icon-edit-1"></i> </a>
-      </td>
-    {% endif %}
-  </tr>
+    <div class="swipe-track">
+      <div class="swipe-content song-main">
+        <span class="song-num">{{loop.index + pagination.skip}}</span>
+        <span class="song-title" id={{filename_from_path(song)[0].lower()}}>{{filename_from_path(song)}}</span>
+        {% if admin %}
+          <a class="edit-cell edit-button" onclick="onEdit('/f_edit?song={{url_escape(song.encode())}}')"
+            title="{{getString1(104)}}"><i class="icon icon-edit-1"></i></a>
+        {% endif %}
+      </div>
+      {% if admin %}<button class="swipe-delete" aria-label="{{getString1(250)}}" title="{{getString1(250)}}">&#x2715;</button>{% endif %}
+    </div>
+  </li>
   {% endfor %}
-</table>
+</ol>
 {{ pagination.links }}
 </div>
 
@@ -94,7 +104,7 @@ if ($(window).width() <= 500) {
 }
 
 // Tap a song to add it. (A drag that scrolls the list is not a tap, so scrolling never adds.)
-$('tr.song-row').click(function(e) {
+$('.song-row').click(function(e) {
   if ($(e.target).closest('.edit-cell').length) return;         // the pencil edits instead
   var user = Cookies.get("user");
   if (!user) {
@@ -118,6 +128,27 @@ $('tr.song-row').click(function(e) {
     setTimeout(() => row.removeClass('just-tapped added'), 1500);
   }).fail(() => row.removeClass('just-tapped'));
 })
+
+{% if admin %}
+// Swipe a song left for the red X, which deletes it from the library (after asking).
+OHKSwipe.attach(document.getElementById('song-list'), {
+  onDelete: function (row) {
+    var name = row.dataset.name;
+    if (!confirm({{ getString1(249)|tojson }}.replace('%s', name))) { OHKSwipe.close(row); return; }
+    $.getJSON('/files/delete', {song: row.dataset.song, format: 'json'}, function (r) {
+      if (r.deleted) {
+        OHKSwipe.close(row);
+        $(row).slideUp(200, () => row.remove());
+        showNotification({{ getString1(20)|tojson }} + " " + name, "is-warning");
+      } else {
+        OHKSwipe.close(row);
+        var why = {playing: {{ getString1(251)|tojson }}, in_queue: {{ getString1(19)|tojson }}}[r.reason] || {{ getString1(252)|tojson }};
+        showNotification(why + " " + name, "is-danger");
+      }
+    });
+  }
+});
+{% endif %}
 
 function onEdit(url){
   $.get(url).done((data)=>{$('#container').html(data)});

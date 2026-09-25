@@ -492,9 +492,15 @@ html.themed {
 .themed .table tbody tr td:first-child { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
 .themed .table tbody tr td:last-child  { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
 /* browse: tapping a song adds it (f_browse.html) */
-.themed tr.song-row:active td,
-.themed tr.song-row.just-tapped td { background-color: var(--ohk-accent-soft); }
-.themed tr.song-row.added .song-title::after { color: var(--ohk-success); }
+.themed .song-row { border-bottom-color: var(--ohk-border); }
+.themed .song-row:nth-child(even) { background-color: var(--ohk-inset); }
+.themed .song-row:active,
+.themed .song-row.just-tapped { background-color: var(--ohk-accent-soft); }
+.themed .song-row.added .song-title::after { color: var(--ohk-success); }
+
+/* swipe-to-delete button (static/swipe.js): a deep terracotta red in every theme, with a
+   white X (Espresso's own danger colour is too light for white text) */
+.themed .swipe-delete { background: #C4432F; color: #fff; }
 
 /* queue list (f_queue.html), and the song being dragged */
 .themed .queue-item { background: var(--ohk-inset); }

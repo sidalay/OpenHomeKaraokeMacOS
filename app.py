@@ -675,15 +675,27 @@ def logo():
 
 @app.route("/files/delete", methods = ["GET"])
 def delete_file():
-	if "song" in request.args:
-		song_path = request.args["song"]
-		if K.is_song_in_queue(song_path):
-			flash(getString(19) + song_path, "is-danger")
-		else:
-			K.delete(song_path)
-			flash(getString(20) + song_path, "is-warning")
+	# ?format=json answers {"deleted": bool, "reason": ...} (the Browse swipe); otherwise a
+	# message and a redirect, as before. Deleting removes files, so admins only: the page
+	# only showed the button to admins, but the route itself let anyone delete songs.
+	# (This app's flash() sends the message to the phone straight away, so the JSON form,
+	# whose caller shows its own message, must not call it.)
+	as_json = request.args.get("format") == "json"
+	song_path = request.args.get("song")
+	if not is_admin():
+		reason, message = "not_admin", getString(252)
+	elif not song_path:
+		reason, message = "no_song", getString(21)
+	elif K.is_song_in_queue(song_path):
+		reason, message = "in_queue", getString(19) + song_path
+	elif K.now_playing_filename == song_path:
+		reason, message = "playing", getString(251) + song_path
 	else:
-		flash(getString(21), "is-danger")
+		K.delete(song_path)
+		reason, message = None, getString(20) + song_path
+	if as_json:
+		return json.dumps({"deleted": reason is None, "reason": reason})
+	flash(message, "is-warning" if reason is None else "is-danger")
 	return redirect(url_for("browse"))
 
 

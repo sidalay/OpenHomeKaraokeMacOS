@@ -146,8 +146,18 @@ class Engine:
 		self.stream = None
 		self.output_latency = 0.0
 		if device is not False:                     # device=False: no sound card (offline tests)
-			self.stream = sd.OutputStream(samplerate = SR, channels = 2, dtype = 'float32', device = device,
-			                              blocksize = blocksize, latency = latency, callback = self._callback)
+			# CoreAudio sometimes refuses a new stream for a moment (PortAudio -9986), e.g. right
+			# after the previous song's stream closed on a quick skip; try again before giving up
+			for attempt in range(3):
+				try:
+					self.stream = sd.OutputStream(samplerate = SR, channels = 2, dtype = 'float32', device = device,
+					                              blocksize = blocksize, latency = latency, callback = self._callback)
+					break
+				except sd.PortAudioError as e:
+					if attempt == 2:
+						raise
+					logging.info(f"Audio output not ready ({e}); retrying")
+					time.sleep(0.3)
 			self.output_latency = self.stream.latency
 
 	# ----------------------------------------------------------------- tracks
