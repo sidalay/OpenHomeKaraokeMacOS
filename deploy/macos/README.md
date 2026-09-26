@@ -136,6 +136,13 @@ a fresh Mac's PATH, and without this step the commands won't be found.)
 
 ## 6. First run
 
+First, turn off **AirPlay Receiver**: System Settings → General → **AirDrop & Handoff**
+→ *AirPlay Receiver* → off. It is on by default and occupies port 5000, the port
+OpenHomeKaraoke uses. Left on, phones that scan the QR code get AirPlay's empty
+"403 Forbidden" page instead of the app. (The app now refuses to start and says so when
+the port is taken. To keep AirPlay Receiver instead, run the app on another port,
+e.g. `openkaraoke -p 5050`.)
+
 ```bash
 openkaraoke
 ```
@@ -234,9 +241,65 @@ System Settings → General → **Sharing**: turn on **Remote Login** (SSH) and
 
 ### 8e. Keep the address stable
 
-The QR code contains the mini's IP address. In your router's settings, give the mini a
-**DHCP reservation** (sometimes called "static lease") so the address doesn't change and
-bookmarked links keep working.
+The QR code holds the mini's IP address, e.g. `http://192.168.0.179:5000`. Your router
+hands out these addresses (that's DHCP) and can give the mini a different one after a
+restart or a power cut. The QR code on the TV always shows the current address, but
+bookmarks and home-screen icons on phones would stop working. The fix is a **DHCP
+reservation**: you tell the router "always give this device this address". Nothing
+changes on the Mac. Routers also call it *address reservation*, *static lease*,
+*fixed IP* or *static DHCP*.
+
+**1. Note the mini's current address and its MAC address.** On the mini: System Settings
+→ Network → **Ethernet** → *Details*. *TCP/IP* shows the IP address (e.g.
+`192.168.0.179`) and *Router* (e.g. `192.168.0.1`); *Hardware* shows the MAC address,
+six pairs like `a1:b2:c3:d4:e5:f6`. From Terminal:
+
+```bash
+ipconfig getifaddr en0; networksetup -getmacaddress Ethernet
+```
+
+A router tells devices apart by MAC address, and an Ethernet port's never changes. (On
+Wi-Fi, macOS may use a rotating private address instead. If the mini is on Wi-Fi, set
+Wi-Fi → *Details* → *Private Wi-Fi address* to **Fixed** first.)
+
+**2. Open the router's settings.** Either:
+
+- **A web page:** open the *Router* address from step 1 (e.g. `http://192.168.0.1`) in a
+  browser. The admin password is often on a sticker on the router. If you never set
+  one, try the router's app, or search "<router model> default admin password".
+- **An app:** mesh systems (eero, Google Nest Wifi, TP-Link Deco, Netgear Orbi) and many
+  ISP routers (Xfinity, Spectrum, AT&T) are set up from a phone app instead.
+
+**3. Reserve the address.** Find the list of connected devices and the mini in it (by
+its name or MAC address). Then look for one of these:
+
+| Router | Where |
+|---|---|
+| Most web pages (TP-Link, Netgear, ASUS, Linksys) | *LAN* or *DHCP Server* → *Address Reservation* / *DHCP Reservation* → add the MAC and IP |
+| eero | Devices → the mini → *Advanced* → *Reserve IP* |
+| Google Nest Wifi / Google Wifi | Google Home → Wi-Fi → Settings → Advanced networking → *DHCP IP reservations* |
+| TP-Link Deco | More → Advanced → *Address Reservation* |
+| Netgear Orbi (web page) | Advanced → Setup → LAN Setup → *Address Reservation* |
+| Xfinity | Connect → the mini → *Reserve IP* |
+
+Reserve the address the mini **already has** (step 1): then nothing needs to change now.
+Save, or *Apply*.
+
+**4. Check it.** Restart the mini, or on the mini: Network → Ethernet → *Details* →
+TCP/IP → **Renew DHCP Lease**. The address in step 1 should be the same as before.
+
+**If your router can't reserve addresses,** set the address on the Mac instead: Network →
+Ethernet → *Details* → TCP/IP → *Configure IPv4*: **Manually**, and enter an IP address,
+subnet mask (usually `255.255.255.0`) and router, plus the router's address as DNS
+server. Pick an address the router won't hand to another device, i.e. outside its DHCP
+range (shown in its LAN/DHCP settings), e.g. `192.168.0.250`. A reservation is better:
+if you ever change routers, a manually set address can leave the mini unreachable.
+
+**Bonus: a name instead of a number.** iPhones and Macs also reach the mini by name, e.g.
+`http://Mac-Mini.local:5000` (the *Local hostname* at the bottom of the Sharing
+settings). That works even if the IP address changes, so it's a good bookmark for
+iPhones. Many Android phones don't support `.local` names, and the QR code uses the IP
+address, so the reservation is still worth doing.
 
 ---
 
@@ -284,6 +347,9 @@ yt-dlp updates itself when the app starts (at most once a day), so YouTube fixes
 without a `git pull`.
 
 ## Troubleshooting
+
+**The QR code opens a blank page.**
+AirPlay Receiver has port 5000 (see step 6). Turn it off, then restart the app.
 
 **Phones can't open the page.**
 Check that the phone is on the same network as the mini. Guest Wi-Fi networks usually

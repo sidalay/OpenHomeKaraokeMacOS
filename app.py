@@ -1383,6 +1383,25 @@ if __name__ == "__main__":
 	elif args.save_delays == 'no':
 		args.save_delays = None
 
+	# The web server runs in a thread, so if its port is taken it fails quietly while the
+	# splash screen goes on showing a QR code that leads nowhere. Check first. (On macOS,
+	# port 5000 belongs to AirPlay Receiver unless it is turned off.)
+	def port_taken(port):
+		import socket
+		with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+			try:
+				s.bind(('0.0.0.0', port))
+				return False
+			except OSError:
+				return True
+	airplay_hint = (" On a Mac this is usually AirPlay Receiver: turn it off in System Settings >"
+	                " General > AirDrop & Handoff, or pick another port, e.g. -p 5050." if platform == 'osx' else "")
+	if port_taken(args.port):
+		print(f"Port {args.port} is already in use by another program, so phones couldn't connect.{airplay_hint}")
+		sys.exit(1)
+	if not args.ssl and port_taken(args.port + 1):
+		print(f"Port {args.port + 1} (HTTPS, for voice search) is in use by another program; voice search on phones won't work.")
+
 	# Configure karaoke process
 	os.K = K = Karaoke(args)
 
