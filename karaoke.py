@@ -158,6 +158,8 @@ class Karaoke:
 		if self.use_vlc:
 			self.vlcclient = vlcclient.VLCClient(port = self.vlc_port, path = self.vlc_path,
 			                                     qrcode = (self.qr_code_path if self.show_overlay else None), url = self.url)
+			if self.platform == "osx":
+				vlcclient.forget_playback_positions(self.download_path)
 			self.init_audio_engine(getattr(args, 'audio_engine', 'auto'))
 		else:
 			self.omxclient = omxclient.OMXClient(path = self.omxplayer_path, adev = self.omxplayer_adev,
@@ -488,7 +490,8 @@ class Karaoke:
 					j = json.loads(each)
 					if (not "title" in j) or (not "url" in j):
 						continue
-					rc.append([j["title"], j["url"], j["id"], sec2hhmmss(j["duration"])])
+					rc.append([j["title"], j["url"], j["id"], sec2hhmmss(j.get("duration")),
+					           j.get("channel") or j.get("uploader") or ""])
 			return rc
 		except Exception as e:
 			logging.debug("Error while executing search: " + str(e))

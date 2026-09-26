@@ -507,6 +507,11 @@ html.themed {
 .themed .queue-num { color: var(--ohk-muted); opacity: 1; }
 .themed .queue-list.sorting .queue-item.lifted { background: var(--ohk-surface); box-shadow: var(--ohk-shadow-lg); }
 
+/* YouTube search results (f_search.html), and the chosen one */
+.themed .yt-result { background: var(--ohk-inset); }
+.themed .yt-result.chosen { border-color: var(--ohk-accent); background: var(--ohk-accent-soft); }
+.themed .yt-meta { color: var(--ohk-muted); opacity: 1; }
+
 /* ------------------------------------------------------------------ tabs */
 
 .themed .tabs a { color: var(--ohk-text-2); border-bottom-color: var(--ohk-border); }

@@ -57,6 +57,33 @@ def find_vlc_http_dir(vlc_path):
 	return None
 
 
+def forget_playback_positions(folder):
+	"""Drop the positions macOS VLC saved for songs in `folder` (it asks "Continue playback?"
+	when it reopens one). Only while VLC isn't running, since it rewrites them when it quits."""
+	import plistlib
+	from urllib.parse import unquote
+	try:
+		if subprocess.run(['pgrep', '-x', 'VLC'], capture_output = True).returncode == 0:
+			return
+		out = subprocess.run(['defaults', 'export', 'org.videolan.vlc', '-'], capture_output = True)
+		if out.returncode != 0:
+			return                                  # VLC has never saved any settings
+		prefs = plistlib.loads(out.stdout)
+		prefix = 'file://' + os.path.abspath(os.path.expanduser(folder)).rstrip('/') + '/'
+		ours = lambda url: unquote(str(url)).startswith(prefix)
+		positions = prefs.get('recentlyPlayedMedia') or {}
+		recent = prefs.get('recentlyPlayedMediaList') or []
+		n = sum(1 for url in positions if ours(url))
+		if not n:
+			return
+		prefs['recentlyPlayedMedia'] = {url: pos for url, pos in positions.items() if not ours(url)}
+		prefs['recentlyPlayedMediaList'] = [url for url in recent if not ours(url)]
+		subprocess.run(['defaults', 'import', 'org.videolan.vlc', '-'], input = plistlib.dumps(prefs), check = True)
+		logging.info(f"Cleared VLC's saved playback positions for {n} songs")
+	except Exception as e:
+		logging.warning(f"Could not clear VLC's saved playback positions: {e}")
+
+
 class VLCClient:
 	vol_increment = 10
 
@@ -96,7 +123,6 @@ class VLCClient:
 			"--no-embedded-video",
 			"--no-keyboard-events",
 			"--no-mouse-events",
-			"--video-on-top",
 			"--volume-save",
 			"--no-video-title",
 			"--no-loop",
@@ -111,10 +137,18 @@ class VLCClient:
 				"--no-macosx-show-playmode-buttons",
 				"--no-macosx-interfacestyle",
 				"--macosx-nativefullscreenmode",
-				"--macosx-continue-playback=2",
+				# Don't remember where songs stopped: otherwise replaying a skipped song pops up
+				# "Continue playback?", which also drops VLC out of fullscreen. (VLC reads
+				# --macosx-continue-playback only from its settings file, never from the command
+				# line, but it does honour this one; see forget_playback_positions for the
+				# positions it saved before.)
+				"--no-macosx-recentitems",
 			]
+			# No --video-on-top here: fullscreen VLC gets its own Space, so it needs no help to
+			# cover the splash screen, and "always on top" kept a windowed VLC above every
+			# other app, on every display.
 		else:
-			self.cmd_base += ["--intf", "dummy"]
+			self.cmd_base += ["--intf", "dummy", "--video-on-top"]
 
 		if self.qrcode and self.url:
 			self.cmd_base += self.get_marquee_cmd()

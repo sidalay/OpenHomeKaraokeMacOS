@@ -1,10 +1,28 @@
+<style>
+  .yt-options { display: flex; flex-wrap: wrap; gap: 0.3em 1em; font-size: 0.85em; margin-bottom: 0.4em !important; }
+  .content ol.yt-results { list-style: none; margin: 0.6em 0 1em; padding: 0; }
+  .content .yt-results li + li { margin-top: 0; }
+  .yt-result {
+    display: flex; gap: 0.7em; align-items: flex-start; padding: 0.5em; margin-bottom: 6px;
+    border-radius: 12px; border: 2px solid transparent; background: rgba(127, 127, 127, 0.12);
+    cursor: pointer; -webkit-tap-highlight-color: transparent;
+  }
+  .yt-result.chosen { border-color: #48c774; }
+  .yt-thumb { flex: none; width: 120px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: rgba(127, 127, 127, 0.2); }
+  .yt-info { flex: 1; min-width: 0; }
+  .yt-title { font-size: 0.92em; line-height: 1.3; overflow-wrap: anywhere;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .yt-meta { font-size: 0.75em; opacity: 0.65; margin-top: 0.2em; overflow-wrap: anywhere; }
+  #yt-actions { display: flex; align-items: center; gap: 0.9em; margin-top: 0.5em; font-size: 0.85em; }
+  #yt-actions .button { font-weight: 600; }
+  #youtube-link { white-space: nowrap; }
+</style>
 <script>
 var download_url = "";
 function download_ended(){
   $("#direct-download-button").removeClass("is-loading");
   $("#download-button").removeClass("is-loading");
 }
-$("#search_result_selector").focus();
 $("#download-button").click(function () {
   if (!$("#download-button").is('[disabled=disabled]')) {
     $("#download-button").addClass("is-loading");
@@ -25,28 +43,25 @@ $('.download-direct').submit(function(){
   return false;
 });
 
-//START SELECTIZE CHANGES
-
-//if enter key press, by default search button is click
-$(document).keypress(
-  function (event) {
-    if (event.which == '13') {
-      event.preventDefault();
-
-      if ($(".search-selectize .selectize-input input").val())
-        $('#search-link').trigger("click");
-      else if ($('.search-selectize').find(":selected").text())
-        $('#add-queue-link').trigger("click");
-    }
-  });
+// The search box is a form, so the phone keyboard's Search/Go key (and Enter) submits it:
+// a song already in the library (picked from the suggestions) is queued, anything else is
+// searched for on YouTube.
+$('#search-form').submit(function (e) {
+  e.preventDefault();
+  if (!$('#search-box').val()) return;
+  $('#search-box').blur();                        // put the phone keyboard away
+  if (isLibrarySong()) $('#add-queue-link').trigger('click');
+  else $('#search-link').trigger('click');
+});
 
 $("#add-queue-link").hide();
 $('#search-link').click((e) => {
-  $("#search-link").addClass("is-loading");
   var search_term = $("#search-box").val();
   var include_non_karaoke = $("#search-karaoke").is(":checked");
-  if (search_term)
+  if (search_term) {
+    $("#search-link").addClass("is-loading");
     post_switch("/f_search", {search_string:search_term, non_karaoke:include_non_karaoke});
+  }
 });
 $('#add-queue-link').click((e) => {
   $.post("/enqueue", {song: suggests[$('#search-box').val()], user: currentUser}).then((data) => {
@@ -58,24 +73,17 @@ $('#add-queue-link').click((e) => {
   });
 });
 
-//END SELECTIZE CHANGES
-
-$('#youtube-link').attr('href', $('#search_result_selector').val());
-$('#youtube-link').text($('#search_result_selector').val());
-
-//get youtube thumbnail based on ID
-i = -1;
-changeImage();
-
-$(document).on('change', '#search_result_selector', function () {
-  var url = $('#search_result_selector').val();
-  $('#youtube-link').attr('href', url);
-  $('#youtube-link').text(url);
-  changeImage();
+// YouTube results: tap one to choose it; the chosen one shows the Download button
+$('#yt-results').on('click', '.yt-result', function (e) {
+  if ($(e.target).closest('#yt-actions').length) return;
+  var card = $(this);
+  $('.yt-result.chosen').removeClass('chosen');
+  card.addClass('chosen');
+  $('#song-url').val(card.data('url'));
+  $('#youtube-link').attr('href', card.data('url'));
+  $('#yt-actions').appendTo(card.find('.yt-info')).show();
+  $("#download-button").removeClass("is-loading");
 });
-//allow click of images
-$('#youtube-thumb').click(function (e) { changeImage(); });
-timer = setInterval(function () { $('#youtube-thumb').trigger('click'); }, 2000);
 
 $('#advanced-settings').hide()
 
@@ -89,13 +97,6 @@ $('#show-advanced').change(() => {
 
 $(".song-added-by").val(currentUser)
 
-function changeImage() {
-  var next = (++i % 4);
-  var youtube_id = $('#search_result_selector').find(':selected').data('ytid');
-  var fn = (next == 0) ? "default" : next;
-  var img_src = 'https://img.youtube.com/vi/' + youtube_id + '/mq' + fn + '.jpg'
-  $('#youtube-thumb').attr("src", img_src);
-}
 function countChars(s){
   var sum=0;
   for(var x=0; x<s.length; x++)
@@ -107,8 +108,20 @@ function set_suggests(obj){
   suggests = obj;
   var html = '';
   for(var i of Object.keys(obj))
-    html += `<option value="${i}">`;
+    html += `<option value="${escapeAttr(i)}">`;
   $('#suggestions').html(html);
+  updateSearchButton();
+}
+function escapeAttr(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+}
+function isLibrarySong() {
+  return suggests != null && $('#search-box').val() in suggests;
+}
+// "Queue" when the box holds a song from the library, otherwise "Search"
+function updateSearchButton() {
+  $('#add-queue-link').toggle(isLibrarySong());
+  $('#search-link').toggle(!isLibrarySong());
 }
 function searchASR(){
   var blob = new Blob(audios, { type: "audio/webm" });
@@ -124,18 +137,12 @@ function searchASR(){
 $('#search-box').on('input', (ev) => {
   if(ev.target.value!=old_text && countChars(ev.target.value)>=4){
     old_text = ev.target.value;
-    $.get('/suggest?q='+ev.target.value).then((data) => { set_suggests(JSON.parse(data)); });
-    if(suggests!=null && old_text in suggests){
-      $('#add-queue-link').show();
-      $('#search-link').hide();
-    }else{
-      $('#add-queue-link').hide();
-      $('#search-link').show();
-    }
+    $.get('/suggest?q='+encodeURIComponent(ev.target.value)).then((data) => { set_suggests(JSON.parse(data)); });
   }
+  updateSearchButton();
 });
 if(old_text){
-  $('#search-box').val(old_text);
+  if (!$('#search-box').val()) $('#search-box').val(old_text);
   if(suggests) set_suggests(suggests);
 }
 </script>
@@ -148,17 +155,16 @@ if(old_text){
 <div class="content">
 <div>
   <div class="field" id="container_queue_form">
-    <div id="search-field" class="field has-addons" style="margin-bottom: 5px">
+    <form id="search-form" class="field has-addons" style="margin-bottom: 5px" action="#" autocomplete="off">
       <div class="control" style="width:100%">
-        <input class="input" list="suggestions" id="search-box" type="text" value="{{search_string}}" autocomplete="off">
+        <input class="input" list="suggestions" id="search-box" type="search" enterkeyhint="search" value="{{search_string or ''}}" autocomplete="off">
         <datalist id="suggestions"></datalist>
       </div>
       <div class="control">
         <a class="button is-warning" id="search-link">{{getString1(118)}}</a>
         <a class="button is-info" id="add-queue-link">{{getString1(119)}}</a>
       </div>
-      <input class="song-added-by" type="hidden" name="song-added-by" />
-    </div>
+    </form>
     <div class="control has-text-right is-flex" style="justify-content: space-between">
       <label class="checkbox is-size-7">
         <input type="checkbox" id="search-karaoke" {% if search_karaoke %}checked{% endif %} name="search-karaoke">
@@ -206,32 +212,33 @@ if(old_text){
   <div id="searching_loader" class="control is-loading is-hidden">{{getString1(128)}}
     <small><i>'<span id="search_term"></span>'</i></small></div>
   {% if search_results %}
-  <iframe name="dummyframe" id="dummyframe" style="display: none;"></iframe>
-  <div class="field">
-    <form class="download-direct" action="/download" method="post">
-      <label class="label">{{getString1(129)}}<small><i>'{{search_string}}'</i></small></label>
-      <div class="field select">
-        <select id="search_result_selector" name='song_url'>
-          {% for title,url,id,dur in search_results %}
-          <option data-ytID='{{id}}' value='{{url}}' title="{{getString1(232)+dur}}">{{title}}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <input class="song-added-by" type="hidden" name="song_added_by" />
-      <p class="help">{{getString1(130)}}</p>
-      <p> {{getString1(131)}}<a target="_blank" id='youtube-link' href='' style="font-size: 80%;"></a> </p>
-      <p class="has-text-centered-mobile"> <img id='youtube-thumb'> </p>
-      <div class="field">
-        <label class="checkbox"><input type="checkbox" checked name="enqueue">{{getString1(125)}}</label>&nbsp;
-        <label class="checkbox" title="{{getString1(209)}}"><input type="checkbox" name="high_quality" {{'checked' if high_quality else ''}}>{{getString1(206)}}</label>
-        <label class="checkbox"><input type="checkbox" name="include_subtitles">{{getString1(126)}}</label>
-      </div>
-      <div class="field">
-        <button class="button is-success is-rounded" id="download-button" type="submit">{{getString1(127)}}</button>
-      </div>
-    </form>
-  </div>
-</div>
-{% endif %}
+  <form class="download-direct" action="/download" method="post">
+    <label class="label">{{getString1(129)}} <small><i>'{{search_string}}'</i></small></label>
+    <div class="field yt-options">
+      <label class="checkbox" title="{{getString1(207)}}"><input type="checkbox" checked name="enqueue"> {{getString1(125)}}</label>
+      <label class="checkbox" title="{{getString1(209)}}"><input type="checkbox" name="high_quality" {{'checked' if high_quality else ''}}> {{getString1(206)}}</label>
+      <label class="checkbox" title="{{getString1(208)}}"><input type="checkbox" name="include_subtitles"> {{getString1(126)}}</label>
+    </div>
+    <p class="help">{{getString1(253)}}</p>
+    <input type="hidden" name="song_url" id="song-url" />
+    <input class="song-added-by" type="hidden" name="song_added_by" />
+    <ol class="yt-results" id="yt-results">
+      {% for title,url,id,dur,channel in search_results %}
+      {% set d = dur.split('.')[0] %}{% set d = d[3:] if d.startswith('00:') else d %}{% set d = d[1:] if d.startswith('0') and d|length > 4 else d %}
+      <li class="yt-result" data-url="{{url}}">
+        <img class="yt-thumb" loading="lazy" alt="" src="https://i.ytimg.com/vi/{{id}}/mqdefault.jpg">
+        <div class="yt-info">
+          <div class="yt-title">{{title}}</div>
+          <div class="yt-meta">{{channel}}{% if channel and d %} · {% endif %}{{ d }}</div>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+    <div id="yt-actions" style="display: none">
+      <button class="button is-success is-rounded is-small" id="download-button" type="submit">{{getString1(127)}}</button>
+      <a target="_blank" id="youtube-link" href="">YouTube&nbsp;&#x2197;</a>
+    </div>
+  </form>
+  {% endif %}
 
 </div>

@@ -541,6 +541,7 @@ def f_search():
 		songs = K.available_songs,
 		high_quality = K.high_quality,
 		search_results = search_results,
+		search_string = search_string,
 		search_karaoke = search_karaoke
 	)
 
