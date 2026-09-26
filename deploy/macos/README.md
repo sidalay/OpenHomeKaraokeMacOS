@@ -111,8 +111,15 @@ this **on the MacBook**:
 rsync -a --progress --exclude='.input.wav' --exclude='.vocal.wav' --exclude='.nonvocal.wav' ~/pikaraoke-songs/ karaoke@<mini-name>.local:pikaraoke-songs/
 ```
 
-Replace `<mini-name>` with the name shown under Sharing, and `karaoke` with the account
-you created. This copies the split tracks and your saved per-song delays
+Replace `<mini-name>`, **including the `<` and `>`**, with the mini's local hostname,
+and `karaoke` with the account's short name. For a mini with the hostname `Mac-Mini.local`
+and the account `sid`, the end of the command is `sid@Mac-Mini.local:pikaraoke-songs/`.
+(Left in, zsh reads `<` as "read from a file" and fails with *no such file or directory*.)
+The hostname is at the bottom of the Sharing settings, under *Local hostname*; the
+account's short name is what `whoami` prints in Terminal on the mini. The first time,
+answer `yes` to the "authenticity of host" question, then enter the mini account's
+password. If the copy is interrupted, run the same command again: it picks up where it
+stopped. This copies the split tracks and your saved per-song delays
 (`.delays`). The excluded files are temporary splitter scratch files.
 
 ## 5. `openkaraoke` / `exitkaraoke` commands
