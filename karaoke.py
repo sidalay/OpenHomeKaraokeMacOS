@@ -335,16 +335,14 @@ class Karaoke:
 		blitY = self.ref_W*self.screen.get_height()//self.screen.get_width() - 40
 		sysfont_size = 30
 
-		# Draw logo and name
-		text = self.render_font(sysfont_size * 2, getString(136), (255, 255, 255))
+		# Draw the logo, centred (no name under it)
 		if not hasattr(self, 'logo'):
 			self.logo = pygame.image.load(self.logo_path)
 		_, _, W, H = self.normalize(list(self.logo.get_rect()))
 		W, H = W/2, H/2
 		center = self.screen.get_rect().center
 		self.logo1 = pygame.transform.scale(self.logo, (W, H))
-		self.screen.blit(self.logo1, (center[0]-W/2, center[1]-H/2-text[1].height/2))
-		self.screen.blit(text[0], (center[0]-text[1].width/2, center[1]+H/2))
+		self.screen.blit(self.logo1, (center[0]-W/2, center[1]-H/2))
 
 		if not self.hide_ip:
 			qr_size = 150
@@ -670,7 +668,7 @@ class Karaoke:
 			if self.save_delays and 'vocal_blend' in saved_delays:
 				self.vocal_blend = saved_delays['vocal_blend']
 			if self.normalize_vol and self.logical_volume is not None:
-				self.volume = self.logical_volume / np.sqrt(self.get_mp3_volume(file_path))
+				self.volume = min(self.logical_volume / np.sqrt(self.get_mp3_volume(file_path)), self.VOL_FULL)
 			use_engine = self.start_engine(file_path)
 			play_path = file_path
 			self.playing_bundle = None if use_engine else self.make_bundle(file_path)
@@ -711,6 +709,9 @@ class Karaoke:
 				self.av_sync.start()
 			elif xml:
 				self.volume = round(float(self.vlcclient.get_val_xml(xml, 'volume')))
+				if self.volume > self.VOL_FULL:             # VLC's saved volume was boosted: cap at 100%
+					self.vlcclient.vol_set(self.VOL_FULL)
+					self.volume = self.VOL_FULL
 			if self.normalize_vol:
 				self.media_vol = self.get_mp3_volume(self.now_playing_filename)
 				self.logical_volume = self.volume * np.sqrt(self.media_vol)
@@ -1133,62 +1134,78 @@ class Karaoke:
 			logging.warning("Tried to pause, but no file is playing!")
 			return False
 
+	# The web UI shows the volume in percent, 0-100%, where 100% is the song as recorded
+	# (no boost). Internally it stays in VLC's units, in which 256 is 100%. (omxplayer
+	# keeps its own units, millibels.)
+	VOL_FULL = 256
+	VOL_STEP = 5            # percent per press of a volume button
+
+	def percent_to_vol(self, percent):
+		return int(round(np.clip(float(percent), 0, 100) * self.VOL_FULL / 100))
+
+	def vol_to_percent(self, volume = None):
+		"""VLC units -> the percent the web UI shows. None: the current volume (the player
+		reports none while nothing plays)."""
+		if volume is None:
+			volume = self.volume
+		if not self.use_vlc:
+			return volume
+		try:
+			return int(round(np.clip(float(volume), 0, self.VOL_FULL) * 100 / self.VOL_FULL))
+		except (TypeError, ValueError):
+			return None
+
 	def engine_vol_set(self, volume):
 		"""Volume in VLC's units (256 = 100%), applied by the engine."""
-		self.volume = int(round(np.clip(float(volume), 0, 512)))
+		self.volume = int(round(np.clip(float(volume), 0, self.VOL_FULL)))
 		self.engine.volume = self.volume / 256.0
 		self.update_logical_vol()
 		self.status_dirty = True
 		return self.volume
 
 	def vol_up(self):
-		if self.is_file_playing() and self.engine:
-			return self.engine_vol_set(self.volume + self.vlcclient.vol_increment)
-		if self.is_file_playing():
-			if self.use_vlc:
-				self.vlcclient.vol_up()
-				xml = self.vlcclient.command().text
-				self.volume = int(self.vlcclient.get_val_xml(xml, 'volume'))
-			else:
-				self.volume = self.omxclient.vol_up()
-			self.update_logical_vol()
-			return self.volume
-		else:
-			logging.warning("Tried to volume up, but no file is playing!")
-			return False
+		"""One step up; returns the new volume as the web UI shows it."""
+		if not self.use_vlc:
+			return self.omx_vol(self.omxclient.vol_up, "up")
+		p = self.vol_to_percent(self.volume) or 0
+		return self.vol_set((p // self.VOL_STEP + 1) * self.VOL_STEP)       # to the next multiple of 5
 
 	def vol_down(self):
-		if self.is_file_playing() and self.engine:
-			return self.engine_vol_set(self.volume - self.vlcclient.vol_increment)
-		if self.is_file_playing():
-			if self.use_vlc:
-				self.vlcclient.vol_down()
-				xml = self.vlcclient.command().text
-				self.volume = int(self.vlcclient.get_val_xml(xml, 'volume'))
-			else:
-				self.volume = self.omxclient.vol_down()
-			self.update_logical_vol()
-			return self.volume
-		else:
-			logging.warning("Tried to volume down, but no file is playing!")
-			return False
+		if not self.use_vlc:
+			return self.omx_vol(self.omxclient.vol_down, "down")
+		p = self.vol_to_percent(self.volume) or 0
+		return self.vol_set((-(-p // self.VOL_STEP) - 1) * self.VOL_STEP)   # to the previous multiple of 5
 
-	def vol_set(self, volume):
+	def vol_set(self, percent):
+		"""Set the volume in percent (0-100; a trailing % is fine). While nothing plays it
+		applies to the next song. Returns the volume as the web UI shows it."""
+		if not self.use_vlc:
+			logging.warning("Only VLC player can set volume, ignored!")
+			return self.omxclient.volume_offset
+		try:
+			volume = self.percent_to_vol(str(percent).strip().rstrip('%'))
+		except ValueError:
+			return self.vol_to_percent(self.volume)
 		if self.is_file_playing() and self.engine:
-			return self.engine_vol_set(volume)
-		if self.is_file_playing():
-			if self.use_vlc:
-				self.vlcclient.vol_set(volume)
-				xml = self.vlcclient.command().text
-				self.volume = int(self.vlcclient.get_val_xml(xml, 'volume'))
-			else:
-				logging.warning("Only VLC player can set volume, ignored!")
-				self.volume = self.omxclient.volume_offset
+			self.engine_vol_set(volume)
+		elif self.is_file_playing():
+			self.vlcclient.vol_set(volume)
+			xml = self.vlcclient.command().text
+			self.volume = int(self.vlcclient.get_val_xml(xml, 'volume'))
 			self.update_logical_vol()
-			return self.volume
 		else:
-			logging.warning("Tried to set volume, but no file is playing!")
+			self.volume = volume
+			self.player_state['volume'] = volume
+		self.status_dirty = True
+		return self.vol_to_percent(self.volume)
+
+	def omx_vol(self, change, direction):
+		if not self.is_file_playing():
+			logging.warning(f"Tried to volume {direction}, but no file is playing!")
 			return False
+		self.volume = change()
+		self.update_logical_vol()
+		return self.volume
 
 	def play_speed_set(self, speed):
 		if self.is_file_playing():
